@@ -18,15 +18,27 @@ def main() -> None:
     )
     parser.add_argument(
         "--daemon",
-        action="store_true",
-        help="Install and enable the systemd user service.",
+        choices=["install", "remove", "status"],
+        help="Manage the systemd user service.",
     )
     parser.add_argument(
         "--version",
         action="version",
         version="voxy 0.1.0",
     )
-    parser.parse_args()
+    args = parser.parse_args()
+    
+    if args.daemon:
+        from voxy.daemon import DaemonManager
+        manager = DaemonManager()
+        if args.daemon == "install":
+            manager.install()
+        elif args.daemon == "remove":
+            manager.remove()
+        elif args.daemon == "status":
+            manager.status()
+        return
+        
     config = ConfigLoader().load()
     App(
         AudioRecorder(),
