@@ -7,6 +7,7 @@ import threading
 from .audio import AudioRecorder
 from .hotkey import HotkeyListener, check_input_group
 from .inserter import TextInserter
+from .postprocess import PostProcessor
 from .transcriber import Transcriber
 
 
@@ -16,6 +17,7 @@ class App:
     _recorder: AudioRecorder
     _transcriber: Transcriber
     _inserter: TextInserter
+    _postprocessor: PostProcessor
     _key: str
 
     def __init__(
@@ -23,11 +25,13 @@ class App:
         recorder: AudioRecorder,
         transcriber: Transcriber,
         inserter: TextInserter,
+        postprocessor: PostProcessor,
         key: str = "right_alt",
     ) -> None:
         self._recorder = recorder
         self._transcriber = transcriber
         self._inserter = inserter
+        self._postprocessor = postprocessor
         self._key = key
 
     def run(self) -> None:
@@ -54,4 +58,5 @@ class App:
     def _on_release(self) -> None:
         audio = self._recorder.stop()
         text = self._transcriber.transcribe(audio)
+        text = self._postprocessor.process(text)
         self._inserter.insert(text)

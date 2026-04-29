@@ -6,6 +6,7 @@ from voxy.app import App
 from voxy.audio import AudioRecorder
 from voxy.config import ConfigLoader
 from voxy.inserter import TextInserter
+from voxy.postprocess import PostProcessor
 from voxy.transcriber import Transcriber
 
 
@@ -30,6 +31,7 @@ def main() -> None:
         AudioRecorder(),
         Transcriber(model_size=config.model.size),
         TextInserter(config.insertion.method),
+        PostProcessor(config.post_processing),
         key=config.hotkey.key,
     ).run()
 
