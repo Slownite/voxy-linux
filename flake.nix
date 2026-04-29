@@ -37,7 +37,7 @@
         ];
 
         voxy = py.pkgs.buildPythonApplication {
-          pname = "voxy";
+          pname = "voxy-linux";
           version = "0.1.0";
           src = ./.;
           format = "pyproject";

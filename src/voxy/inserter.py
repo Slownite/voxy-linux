@@ -15,10 +15,10 @@ class TextInserter:
     def _backend(self) -> str:
         if self._method != "auto":
             return self._method
-        if os.environ.get("DISPLAY"):
-            return "x11"
         if os.environ.get("WAYLAND_DISPLAY"):
             return "wayland"
+        if os.environ.get("DISPLAY"):
+            return "x11"
         raise RuntimeError(
             "Cannot detect display server. Set $DISPLAY (X11) or $WAYLAND_DISPLAY (Wayland), "
             "or set insertion.method in config."

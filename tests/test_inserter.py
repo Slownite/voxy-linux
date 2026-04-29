@@ -29,6 +29,16 @@ def test_auto_wayland_uses_wlcopy_and_ydotool(monkeypatch: pytest.MonkeyPatch) -
     assert any("ydotool" in c for c in calls)
 
 
+def test_auto_prefers_wayland_when_both_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    with patch("voxy.inserter.subprocess.run") as mock_run:
+        TextInserter("auto").insert("hello")
+    calls = [c.args[0] for c in mock_run.call_args_list]
+    assert any("wl-copy" in c for c in calls)
+    assert any("ydotool" in c for c in calls)
+
+
 def test_auto_no_display_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)

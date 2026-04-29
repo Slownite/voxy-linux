@@ -106,14 +106,26 @@ def test_partial_config_uses_defaults(tmp_path: Path) -> None:
 # VOXY_CONFIG env var override
 # ---------------------------------------------------------------------------
 
-def test_env_var_overrides_xdg_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_env_var_used_when_xdg_absent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config_file = _write(tmp_path, """
         [hotkey]
         key = "right_ctrl"
     """)
+    monkeypatch.setattr("voxy.config.XDG_CONFIG_PATH", tmp_path / "nonexistent.toml")
     monkeypatch.setenv(VOXY_CONFIG_ENV, str(config_file))
     cfg = ConfigLoader().load()
     assert cfg.hotkey.key == "right_ctrl"
+
+
+def test_xdg_overrides_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    xdg_file = tmp_path / "xdg.toml"
+    xdg_file.write_text('[hotkey]\nkey = "right_shift"\n', encoding="utf-8")
+    env_file = tmp_path / "env.toml"
+    env_file.write_text('[hotkey]\nkey = "right_ctrl"\n', encoding="utf-8")
+    monkeypatch.setattr("voxy.config.XDG_CONFIG_PATH", xdg_file)
+    monkeypatch.setenv(VOXY_CONFIG_ENV, str(env_file))
+    cfg = ConfigLoader().load()
+    assert cfg.hotkey.key == "right_shift"
 
 
 def test_env_var_missing_file_returns_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
