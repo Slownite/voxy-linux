@@ -1,4 +1,4 @@
-"""App — hotkey-driven record/transcribe loop."""
+"""App — hotkey-driven record/transcribe/insert loop."""
 
 from __future__ import annotations
 
@@ -6,28 +6,32 @@ import threading
 
 from .audio import AudioRecorder
 from .hotkey import HotkeyListener, check_input_group
+from .inserter import TextInserter
 from .transcriber import Transcriber
 
 
 class App:
-    """Push-to-talk: hold hotkey to record, release to transcribe and print."""
+    """Push-to-talk: hold hotkey to record, release to transcribe and insert."""
 
     _recorder: AudioRecorder
     _transcriber: Transcriber
+    _inserter: TextInserter
     _key: str
 
     def __init__(
         self,
         recorder: AudioRecorder,
         transcriber: Transcriber,
+        inserter: TextInserter,
         key: str = "right_alt",
     ) -> None:
         self._recorder = recorder
         self._transcriber = transcriber
+        self._inserter = inserter
         self._key = key
 
     def run(self) -> None:
-        """Block until Ctrl-C, firing record/transcribe on each hotkey press."""
+        """Block until Ctrl-C, firing record/transcribe/insert on each press."""
         check_input_group()
         listener = HotkeyListener(
             key=self._key,
@@ -35,7 +39,7 @@ class App:
             on_release=self._on_release,
         )
         listener.start()
-        print("voxy — hold hotkey to record, release to transcribe. Ctrl-C to quit.")
+        print("voxy — hold hotkey to dictate. Ctrl-C to quit.")
         done = threading.Event()
         try:
             done.wait()
@@ -50,4 +54,4 @@ class App:
     def _on_release(self) -> None:
         audio = self._recorder.stop()
         text = self._transcriber.transcribe(audio)
-        print(f"transcript: {text!r}")
+        self._inserter.insert(text)
