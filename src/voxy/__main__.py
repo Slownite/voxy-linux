@@ -4,6 +4,7 @@ import argparse
 
 from voxy.app import App
 from voxy.audio import AudioRecorder
+from voxy.config import ConfigLoader
 from voxy.transcriber import Transcriber
 
 
@@ -23,7 +24,8 @@ def main() -> None:
         version="voxy 0.1.0",
     )
     parser.parse_args()
-    App(AudioRecorder(), Transcriber()).run()
+    config = ConfigLoader().load()
+    App(AudioRecorder(), Transcriber(), key=config.hotkey.key).run()
 
 
 if __name__ == "__main__":

@@ -1,35 +1,53 @@
-"""App — temporary Enter-triggered record/transcribe loop (issue #3)."""
+"""App — hotkey-driven record/transcribe loop."""
 
 from __future__ import annotations
 
+import threading
+
 from .audio import AudioRecorder
+from .hotkey import HotkeyListener, check_input_group
 from .transcriber import Transcriber
 
 
 class App:
-    """Minimal record → transcribe → print loop for pipeline validation.
-
-    Press Enter to start recording, Enter again to stop.
-    Replaced by hotkey-driven loop in issue #5.
-    """
+    """Push-to-talk: hold hotkey to record, release to transcribe and print."""
 
     _recorder: AudioRecorder
     _transcriber: Transcriber
+    _key: str
 
-    def __init__(self, recorder: AudioRecorder, transcriber: Transcriber) -> None:
+    def __init__(
+        self,
+        recorder: AudioRecorder,
+        transcriber: Transcriber,
+        key: str = "right_alt",
+    ) -> None:
         self._recorder = recorder
         self._transcriber = transcriber
+        self._key = key
 
     def run(self) -> None:
-        """Block until KeyboardInterrupt, looping record/transcribe."""
-        print("voxy — Enter to start, Enter again to stop. Ctrl-C to quit.")
+        """Block until Ctrl-C, firing record/transcribe on each hotkey press."""
+        check_input_group()
+        listener = HotkeyListener(
+            key=self._key,
+            on_press=self._on_press,
+            on_release=self._on_release,
+        )
+        listener.start()
+        print("voxy — hold hotkey to record, release to transcribe. Ctrl-C to quit.")
+        done = threading.Event()
         try:
-            while True:
-                input("[ press Enter to start recording ]")
-                self._recorder.start()
-                input("[ recording… press Enter to stop ]")
-                audio = self._recorder.stop()
-                text = self._transcriber.transcribe(audio)
-                print(f"transcript: {text!r}")
+            done.wait()
         except KeyboardInterrupt:
             pass
+        finally:
+            listener.stop()
+
+    def _on_press(self) -> None:
+        self._recorder.start()
+
+    def _on_release(self) -> None:
+        audio = self._recorder.stop()
+        text = self._transcriber.transcribe(audio)
+        print(f"transcript: {text!r}")
