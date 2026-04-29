@@ -7,7 +7,7 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+    (flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         py = pkgs.python313;
@@ -23,6 +23,8 @@
             numpy
             mypy
             pytest
+            setuptools
+            build
           ])
           ++ [ ps."faster-whisper" ];
 
@@ -57,5 +59,8 @@
           '';
         };
       }
-    );
+    ))
+    // {
+      nixosModules.voxy = import ./nixos-module.nix { inherit self; };
+    };
 }

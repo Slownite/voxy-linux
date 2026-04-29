@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
 XDG_CONFIG_PATH: Path = Path.home() / ".config" / "voxy" / "config.toml"
+VOXY_CONFIG_ENV: str = "VOXY_CONFIG"
 
 _VALID_MODEL_SIZES: frozenset[str] = frozenset(
     {"tiny", "tiny.en", "base", "base.en", "small", "small.en",
@@ -146,7 +148,12 @@ class ConfigLoader:
     _config_path: Path
 
     def __init__(self, config_path: Path | None = None) -> None:
-        self._config_path = config_path if config_path is not None else XDG_CONFIG_PATH
+        if config_path is not None:
+            self._config_path = config_path
+        elif (env := os.environ.get(VOXY_CONFIG_ENV)):
+            self._config_path = Path(env)
+        else:
+            self._config_path = XDG_CONFIG_PATH
 
     def load(self) -> Config:
         """Return a fully populated Config from file.

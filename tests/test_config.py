@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from voxy.config import Config, ConfigError, ConfigLoader
+from voxy.config import Config, ConfigError, ConfigLoader, VOXY_CONFIG_ENV
 
 
 def _write(tmp_path: Path, content: str) -> Path:
@@ -101,6 +101,26 @@ def test_partial_config_uses_defaults(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Invalid values → ConfigError
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# VOXY_CONFIG env var override
+# ---------------------------------------------------------------------------
+
+def test_env_var_overrides_xdg_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_file = _write(tmp_path, """
+        [hotkey]
+        key = "right_ctrl"
+    """)
+    monkeypatch.setenv(VOXY_CONFIG_ENV, str(config_file))
+    cfg = ConfigLoader().load()
+    assert cfg.hotkey.key == "right_ctrl"
+
+
+def test_env_var_missing_file_returns_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(VOXY_CONFIG_ENV, str(tmp_path / "nonexistent.toml"))
+    cfg = ConfigLoader().load()
+    assert cfg == Config()
+
 
 @pytest.mark.parametrize(("toml", "fragment"), [
     ('[model]\nsize = "giant"', r"\[model\] size"),
