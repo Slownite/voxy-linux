@@ -85,11 +85,11 @@ in
       };
       serviceConfig = {
         Type = "simple";
-        ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p %h/.local/share/voxy";
         ExecStart = "${voxyPkg}/bin/voxy";
         Restart = "on-failure";
-        StandardOutput = "append:%h/.local/share/voxy/voxy.log";
-        StandardError = "append:%h/.local/share/voxy/voxy.log";
+        StateDirectory = "voxy";
+        StandardOutput = "append:%S/voxy/voxy.log";
+        StandardError = "append:%S/voxy/voxy.log";
       };
     };
   };
