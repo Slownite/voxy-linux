@@ -7,6 +7,7 @@ import threading
 from .audio import AudioRecorder
 from .hotkey import HotkeyListener, check_input_group
 from .inserter import TextInserter
+from .overlay import OverlayUI
 from .postprocess import PostProcessor
 from .transcriber import Transcriber
 
@@ -18,6 +19,7 @@ class App:
     _transcriber: Transcriber
     _inserter: TextInserter
     _postprocessor: PostProcessor
+    _overlay: OverlayUI
     _key: str
 
     def __init__(
@@ -26,12 +28,14 @@ class App:
         transcriber: Transcriber,
         inserter: TextInserter,
         postprocessor: PostProcessor,
+        overlay: OverlayUI,
         key: str = "right_alt",
     ) -> None:
         self._recorder = recorder
         self._transcriber = transcriber
         self._inserter = inserter
         self._postprocessor = postprocessor
+        self._overlay = overlay
         self._key = key
 
     def run(self) -> None:
@@ -46,17 +50,22 @@ class App:
         print("voxy — hold hotkey to dictate. Ctrl-C to quit.")
         done = threading.Event()
         try:
-            done.wait()
+            if self._overlay._root:
+                self._overlay.wait_loop()
+            else:
+                done.wait()
         except KeyboardInterrupt:
             pass
         finally:
             listener.stop()
 
     def _on_press(self) -> None:
+        self._overlay.show()
         self._recorder.start()
 
     def _on_release(self) -> None:
         audio = self._recorder.stop()
+        self._overlay.hide()
         text = self._transcriber.transcribe(audio)
         text = self._postprocessor.process(text)
         self._inserter.insert(text)
