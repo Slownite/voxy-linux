@@ -67,3 +67,55 @@ class AudioRecorder:
     ) -> None:
         with self._lock:
             self._chunks.append(indata.copy())
+
+
+import wave
+from pathlib import Path
+from .config import UIConfig
+
+
+def _get_sound_path(name: str) -> Path:
+    return Path(__file__).parent / name
+
+
+class AudioFeedback:
+    """Plays start and stop audio cues if enabled."""
+
+    def __init__(self, config: UIConfig) -> None:
+        self._config = config
+        self._start_audio: tuple[npt.NDArray[np.int16 | np.int32 | np.uint8], int] | None = None
+        self._stop_audio: tuple[npt.NDArray[np.int16 | np.int32 | np.uint8], int] | None = None
+        
+        if self._config.audio_feedback:
+            self._start_audio = self._load_wav("start.wav")
+            self._stop_audio = self._load_wav("stop.wav")
+
+    def _load_wav(self, filename: str) -> tuple[npt.NDArray[np.int16 | np.int32 | np.uint8], int] | None:
+        path = _get_sound_path(filename)
+        if not path.exists():
+            return None
+        with wave.open(str(path), 'rb') as wf:
+            framerate = wf.getframerate()
+            sampwidth = wf.getsampwidth()
+            n_frames = wf.getnframes()
+            data = wf.readframes(n_frames)
+            
+            if sampwidth == 2:
+                dtype = np.int16
+            elif sampwidth == 4:
+                dtype = np.int32
+            else:
+                dtype = np.uint8
+                
+            audio_array = np.frombuffer(data, dtype=dtype)
+            return audio_array, framerate
+
+    def play_start(self) -> None:
+        if self._config.audio_feedback and self._start_audio:
+            data, fs = self._start_audio
+            sd.play(data, samplerate=fs)
+
+    def play_stop(self) -> None:
+        if self._config.audio_feedback and self._stop_audio:
+            data, fs = self._stop_audio
+            sd.play(data, samplerate=fs)

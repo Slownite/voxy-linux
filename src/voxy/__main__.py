@@ -3,7 +3,7 @@
 import argparse
 
 from voxy.app import App
-from voxy.audio import AudioRecorder
+from voxy.audio import AudioRecorder, AudioFeedback
 from voxy.config import ConfigLoader
 from voxy.inserter import TextInserter
 from voxy.overlay import OverlayUI
@@ -34,6 +34,7 @@ def main() -> None:
         TextInserter(config.insertion.method),
         PostProcessor(config.post_processing),
         OverlayUI(config.ui),
+        AudioFeedback(config.ui),
         key=config.hotkey.key,
     ).run()
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from .audio import AudioRecorder
+from .audio import AudioRecorder, AudioFeedback
 from .hotkey import HotkeyListener, check_input_group
 from .inserter import TextInserter
 from .overlay import OverlayUI
@@ -20,6 +20,7 @@ class App:
     _inserter: TextInserter
     _postprocessor: PostProcessor
     _overlay: OverlayUI
+    _feedback: AudioFeedback
     _key: str
 
     def __init__(
@@ -29,6 +30,7 @@ class App:
         inserter: TextInserter,
         postprocessor: PostProcessor,
         overlay: OverlayUI,
+        feedback: AudioFeedback,
         key: str = "right_alt",
     ) -> None:
         self._recorder = recorder
@@ -36,6 +38,7 @@ class App:
         self._inserter = inserter
         self._postprocessor = postprocessor
         self._overlay = overlay
+        self._feedback = feedback
         self._key = key
 
     def run(self) -> None:
@@ -61,11 +64,13 @@ class App:
 
     def _on_press(self) -> None:
         self._overlay.show()
+        self._feedback.play_start()
         self._recorder.start()
 
     def _on_release(self) -> None:
         audio = self._recorder.stop()
         self._overlay.hide()
+        self._feedback.play_stop()
         text = self._transcriber.transcribe(audio)
         text = self._postprocessor.process(text)
         self._inserter.insert(text)
