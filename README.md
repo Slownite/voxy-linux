@@ -79,7 +79,7 @@ level = "info"
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    voxy.url    = "github:your-username/voxy";
+    voxy.url    = "github:Slownite/voxy-linux";
   };
 
   outputs = { nixpkgs, voxy, ... }: {
