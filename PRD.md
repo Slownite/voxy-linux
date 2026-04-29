@@ -75,6 +75,7 @@ voxy is a local, offline voice dictation tool for Linux (X11 and Wayland). The u
 - Config format is TOML; `tomllib` (stdlib, Python 3.11+) is used with `tomli` as a fallback.
 - All punctuation command substitutions and custom substitutions are defined in the config file, not hardcoded.
 - Audio is never persisted to disk.
+- All Python code is fully type-annotated and checked with `mypy --strict`. Every module's public interface (function signatures, return types, dataclass fields) must be annotated from the first slice onward. `mypy` must pass cleanly before a slice is considered done.
 
 ### Packaging
 
@@ -85,6 +86,8 @@ voxy is a local, offline voice dictation tool for Linux (X11 and Wayland). The u
 ## Testing Decisions
 
 **What makes a good test:** tests verify observable behavior through the module's public interface only. No mocking of internal implementation details. Tests should remain valid even if the internals are rewritten.
+
+**Type checking:** `mypy --strict` is a required gate at every slice. Third-party stubs (e.g. `types-toml`) are included as dev dependencies. All test files are also fully annotated and mypy-clean.
 
 **Modules to test (tests ship with each slice):**
 

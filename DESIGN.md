@@ -186,17 +186,30 @@ level = "info"
 | Wayland paste | `ydotool` |
 | Overlay UI | `tkinter` |
 | Config parsing | `tomllib` (stdlib) / `tomli` fallback |
+| Type checking | `mypy` (strict mode) |
 | Packaging | Nix flake |
+
+---
+
+## Type Safety
+
+All Python code is written with full type annotations and checked with `mypy --strict`. This applies to every module from the first slice onward — no untyped code is introduced at any stage.
+
+- `mypy` is included in the dev shell
+- A `mypy.ini` (or `[tool.mypy]` in `pyproject.toml`) is configured with `strict = true` from the scaffold step
+- Each module's public interface is fully annotated: function signatures, return types, dataclass fields
+- Third-party stubs (`types-toml`, etc.) are declared as dev dependencies in the flake
+- `mypy` must pass cleanly before any slice is considered done
 
 ---
 
 ## Build Order
 
-1. `flake.nix` — Nix packaging, dev shell, all dependencies
-2. Core audio + transcription loop — record → transcribe → output text
-3. Hotkey capture — evdev push-to-talk
-4. Text insertion — clipboard + paste, X11/Wayland
-5. Overlay UI — floating recording indicator
-6. Post-processing — punctuation commands, capitalize, substitutions
-7. Daemon mode — systemd user service + `--daemon` flag
+1. `flake.nix` — Nix packaging, dev shell, all dependencies; `mypy --strict` configured and passing
+2. Core audio + transcription loop — record → transcribe → output text; fully typed
+3. Hotkey capture — evdev push-to-talk; fully typed
+4. Text insertion — clipboard + paste, X11/Wayland; fully typed
+5. Overlay UI — floating recording indicator; fully typed
+6. Post-processing — punctuation commands, capitalize, substitutions; fully typed
+7. Daemon mode — systemd user service + `--daemon` flag; fully typed
 8. NixOS module — `services.voxy`
