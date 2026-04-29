@@ -2,6 +2,10 @@
 
 import argparse
 
+from voxy.app import App
+from voxy.audio import AudioRecorder
+from voxy.transcriber import Transcriber
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -19,7 +23,7 @@ def main() -> None:
         version="voxy 0.1.0",
     )
     parser.parse_args()
-    # App wired up in issue #3 (audio pipeline) and #4 (config).
+    App(AudioRecorder(), Transcriber()).run()
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@
             tkinter
             numpy
             mypy
+            pytest
           ])
           ++ [ ps."faster-whisper" ];
 

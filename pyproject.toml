@@ -21,6 +21,10 @@ voxy = "voxy.__main__:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.mypy]
-python_version = "3.13"
-strict = true
+[project.optional-dependencies]
+dev = ["pytest", "mypy"]
+
+# mypy config lives in mypy.ini (TOML overrides not supported in this mypy version)
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
