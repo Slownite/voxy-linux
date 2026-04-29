@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -83,14 +84,14 @@ class AudioFeedback:
 
     def __init__(self, config: UIConfig) -> None:
         self._config = config
-        self._start_audio: tuple[npt.NDArray[np.int16 | np.int32 | np.uint8], int] | None = None
-        self._stop_audio: tuple[npt.NDArray[np.int16 | np.int32 | np.uint8], int] | None = None
+        self._start_audio: tuple[npt.NDArray[Any], int] | None = None
+        self._stop_audio: tuple[npt.NDArray[Any], int] | None = None
         
         if self._config.audio_feedback:
             self._start_audio = self._load_wav("start.wav")
             self._stop_audio = self._load_wav("stop.wav")
 
-    def _load_wav(self, filename: str) -> tuple[npt.NDArray[np.int16 | np.int32 | np.uint8], int] | None:
+    def _load_wav(self, filename: str) -> tuple[npt.NDArray[Any], int] | None:
         path = _get_sound_path(filename)
         if not path.exists():
             return None
@@ -100,6 +101,7 @@ class AudioFeedback:
             n_frames = wf.getnframes()
             data = wf.readframes(n_frames)
             
+            dtype: Any
             if sampwidth == 2:
                 dtype = np.int16
             elif sampwidth == 4:

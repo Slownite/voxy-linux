@@ -6,7 +6,7 @@ from voxy.config import UIConfig
 from voxy.overlay import OverlayUI
 
 
-def test_overlay_disabled():
+def test_overlay_disabled() -> None:
     """Test that when overlay is disabled, show/hide do nothing and no window is created."""
     config = UIConfig(overlay=False)
     with patch("voxy.overlay.tk") as mock_tk:
@@ -16,7 +16,7 @@ def test_overlay_disabled():
         mock_tk.Tk.assert_not_called()
 
 
-def test_overlay_show_hide():
+def test_overlay_show_hide() -> None:
     """Test that show() and hide() call the correct window methods."""
     config = UIConfig(overlay=True)
     with patch("voxy.overlay.tk") as mock_tk:
@@ -35,7 +35,7 @@ def test_overlay_show_hide():
         mock_root.withdraw.assert_called()
 
 
-def test_overlay_geometry_corners():
+def test_overlay_geometry_corners() -> None:
     """Test geometry calculation for different corners."""
     with patch("voxy.overlay.tk") as mock_tk:
         mock_root = MagicMock()

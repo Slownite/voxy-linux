@@ -6,7 +6,7 @@ from voxy.audio import AudioFeedback
 from voxy.config import UIConfig
 
 
-def test_feedback_disabled():
+def test_feedback_disabled() -> None:
     """Test that when disabled, play_start and play_stop do nothing."""
     config = UIConfig(audio_feedback=False)
     with patch("voxy.audio.sd") as mock_sd:
@@ -16,7 +16,7 @@ def test_feedback_disabled():
         mock_sd.play.assert_not_called()
 
 
-def test_feedback_enabled_plays_sound():
+def test_feedback_enabled_plays_sound() -> None:
     """Test that when enabled, it reads the file and plays it."""
     config = UIConfig(audio_feedback=True)
     with patch("voxy.audio.sd") as mock_sd, \
