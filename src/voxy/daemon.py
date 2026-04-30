@@ -15,8 +15,9 @@ Description=voxy — local offline voice dictation for Linux
 Type=simple
 ExecStart=voxy
 Restart=on-failure
-StandardOutput=append:%h/.local/share/voxy/voxy.log
-StandardError=append:%h/.local/share/voxy/voxy.log
+StateDirectory=voxy
+StandardOutput=append:%S/voxy/voxy.log
+StandardError=append:%S/voxy/voxy.log
 
 [Install]
 WantedBy=default.target
@@ -24,7 +25,7 @@ WantedBy=default.target
 
     def __init__(self) -> None:
         self._service_path = Path.home() / ".config" / "systemd" / "user" / "voxy.service"
-        self._log_dir = Path.home() / ".local" / "share" / "voxy"
+        self._log_dir = Path.home() / ".local" / "state" / "voxy"
 
     def install(self) -> None:
         self._service_path.parent.mkdir(parents=True, exist_ok=True)
