@@ -43,7 +43,7 @@
           format = "pyproject";
 
           nativeBuildInputs = with py.pkgs; [ setuptools ];
-          propagatedBuildInputs = pythonDeps py.pkgs;
+          propagatedBuildInputs = (pythonDeps py.pkgs) ++ systemDeps;
         };
       in
       {

@@ -150,10 +150,10 @@ class ConfigLoader:
     def __init__(self, config_path: Path | None = None) -> None:
         if config_path is not None:
             self._config_path = config_path
-        elif XDG_CONFIG_PATH.exists():
-            self._config_path = XDG_CONFIG_PATH
         elif (env := os.environ.get(VOXY_CONFIG_ENV)):
             self._config_path = Path(env)
+        elif XDG_CONFIG_PATH.exists():
+            self._config_path = XDG_CONFIG_PATH
         else:
             self._config_path = XDG_CONFIG_PATH
 

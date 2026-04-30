@@ -79,7 +79,9 @@ in
   config = lib.mkIf cfg.enable {
     systemd.user.services.voxy = {
       description = "voxy — local offline voice dictation for Linux";
-      wantedBy = [ "default.target" ];
+      wantedBy = [ "graphical-session.target" ];
+      partOf   = [ "graphical-session.target" ];
+      after    = [ "graphical-session.target" ];
       environment = {
         VOXY_CONFIG = "${configFile}";
       };
