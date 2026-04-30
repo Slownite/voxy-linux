@@ -69,8 +69,9 @@ class App:
 
     def _on_release(self) -> None:
         audio = self._recorder.stop()
-        self._overlay.hide()
+        self._overlay.processing()
         self._feedback.play_stop()
         text = self._transcriber.transcribe(audio)
         text = self._postprocessor.process(text)
         self._inserter.insert(text)
+        self._overlay.hide()
