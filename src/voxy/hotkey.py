@@ -132,41 +132,62 @@ class HotkeyListener:
         code = _evdev_code(self._key)
         assert code is not None  # guaranteed by _evdev_available
 
-        keyboard = self._find_evdev_device(code)
-        pressed = False
-        try:
-            keyboard.grab()
-        except OSError as e:
-            if e.errno == errno.EBUSY:
-                keyboard.close()
-                self._run_pynput()
-                return
-            raise
-        try:
-            for event in keyboard.read_loop():
-                if self._stop_event.is_set():
-                    break
-                if event.type != ecodes.EV_KEY or event.code != code:
-                    continue
-                if event.value == 1 and not pressed:
-                    pressed = True
-                    self._on_press()
-                elif event.value == 0 and pressed:
-                    pressed = False
-                    self._on_release()
-        finally:
-            keyboard.ungrab()
+        devices = self._find_evdev_devices(code)
+        if not devices:
+            self._run_pynput()
+            return
 
-    def _find_evdev_device(self, code: int) -> evdev.InputDevice:  # type: ignore[type-arg]
+        pressed = False
+        pressed_lock = threading.Lock()
+
+        def run_device(dev: evdev.InputDevice) -> None:  # type: ignore[type-arg]
+            nonlocal pressed
+            try:
+                dev.grab()
+            except OSError as e:
+                if e.errno == errno.EBUSY:
+                    dev.close()
+                    return
+                raise
+            try:
+                for event in dev.read_loop():
+                    if self._stop_event.is_set():
+                        break
+                    if event.type != ecodes.EV_KEY or event.code != code:
+                        continue
+                    with pressed_lock:
+                        if event.value == 1 and not pressed:
+                            pressed = True
+                            self._on_press()
+                        elif event.value == 0 and pressed:
+                            pressed = False
+                            self._on_release()
+            finally:
+                dev.ungrab()
+
+        threads = [
+            threading.Thread(target=run_device, args=(dev,), daemon=True)
+            for dev in devices
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    def _find_evdev_devices(self, code: int) -> list[evdev.InputDevice]:  # type: ignore[type-arg]
+        """Return all input devices that report the given key code."""
+        found = []
         for path in evdev.list_devices():
             try:
                 dev = evdev.InputDevice(path)
                 caps = dev.capabilities()
                 if code in caps.get(ecodes.EV_KEY, []):
-                    return dev
+                    found.append(dev)
+                else:
+                    dev.close()
             except OSError:
                 continue
-        raise RuntimeError(f"No evdev device found with key code {code}")
+        return found
 
     # ------------------------------------------------------------------
     # pynput fallback
