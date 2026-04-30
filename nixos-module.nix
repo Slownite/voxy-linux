@@ -91,9 +91,6 @@ in
         Type = "simple";
         ExecStart = "${voxyPkg}/bin/voxy";
         Restart = "on-failure";
-        StateDirectory = "voxy";
-        StandardOutput = "append:%S/voxy/voxy.log";
-        StandardError = "append:%S/voxy/voxy.log";
       };
     };
   };
