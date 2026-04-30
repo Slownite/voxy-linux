@@ -5,6 +5,18 @@ from __future__ import annotations
 import os
 import subprocess
 
+_TERMINAL_CLASSES: frozenset[str] = frozenset({
+    "konsole", "org.kde.konsole",
+    "gnome-terminal", "gnome-terminal-server", "org.gnome.terminal",
+    "alacritty",
+    "ghostty", "com.mitchellh.ghostty",
+    "kitty",
+})
+
+# ydotool keycodes: 29=Ctrl, 42=Shift, 47=V
+_YDOTOOL_CTRL_V: list[str] = ["29:1", "47:1", "47:0", "29:0"]
+_YDOTOOL_CTRL_SHIFT_V: list[str] = ["29:1", "42:1", "47:1", "47:0", "42:0", "29:0"]
+
 
 class TextInserter:
     _method: str
@@ -24,18 +36,121 @@ class TextInserter:
             "or set insertion.method in config."
         )
 
+    def _focused_class(self) -> str:
+        """Return the lowercase WM_CLASS / app_id of the focused window, or ''."""
+        if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            return self._focused_class_hyprland()
+        if os.environ.get("SWAYSOCK"):
+            return self._focused_class_sway()
+        if os.environ.get("DISPLAY"):
+            return self._focused_class_x11()
+        if (
+            os.environ.get("XDG_CURRENT_DESKTOP", "").lower() == "gnome"
+            and os.environ.get("WAYLAND_DISPLAY")
+        ):
+            return self._focused_class_gnome_wayland()
+        return ""
+
+    def _focused_class_x11(self) -> str:
+        win = subprocess.run(
+            ["xdotool", "getactivewindow"],
+            capture_output=True, text=True, check=False,
+        )
+        if win.returncode != 0 or not win.stdout.strip():
+            return ""
+        xprop = subprocess.run(
+            ["xprop", "-id", win.stdout.strip(), "WM_CLASS"],
+            capture_output=True, text=True, check=False,
+        )
+        if xprop.returncode != 0:
+            return ""
+        return xprop.stdout.lower()
+
+    def _focused_class_hyprland(self) -> str:
+        result = subprocess.run(
+            ["hyprctl", "activewindow", "-j"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return ""
+        import json
+        try:
+            data: dict[str, object] = json.loads(result.stdout)
+            cls = data.get("class", "")
+            return str(cls).lower() if cls else ""
+        except (json.JSONDecodeError, KeyError):
+            return ""
+
+    def _focused_class_sway(self) -> str:
+        result = subprocess.run(
+            ["swaymsg", "-t", "get_tree"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return ""
+        import json
+        try:
+            tree: dict[str, object] = json.loads(result.stdout)
+            node = _find_focused_sway(tree)
+            if node is None:
+                return ""
+            app_id = node.get("app_id") or node.get("window_properties", {})
+            if isinstance(app_id, dict):
+                app_id = app_id.get("class", "")
+            return str(app_id).lower() if app_id else ""
+        except (json.JSONDecodeError, KeyError, AttributeError):
+            return ""
+
+    def _focused_class_gnome_wayland(self) -> str:
+        result = subprocess.run(
+            [
+                "gdbus", "call", "--session",
+                "--dest", "org.gnome.Shell",
+                "--object-path", "/org/gnome/Shell",
+                "--method", "org.gnome.Shell.Eval",
+                "global.display.get_focus_window().get_wm_class()",
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return ""
+        # gdbus output: "(true, 'Alacritty')\n"
+        out = result.stdout.strip()
+        if not out.startswith("(true,"):
+            return ""
+        return out.split(",", 1)[-1].strip(" ')\"").lower()
+
+    def _is_terminal_focused(self) -> bool:
+        cls = self._focused_class()
+        return any(t in cls for t in _TERMINAL_CLASSES)
+
     def insert(self, text: str) -> None:
         backend = self._backend()
+        terminal = self._is_terminal_focused()
         if backend == "x11":
             subprocess.run(
                 ["xclip", "-selection", "clipboard"],
                 input=text.encode(),
                 check=False,
             )
+            paste_key = "ctrl+shift+v" if terminal else "ctrl+v"
             subprocess.run(
-                ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+                ["xdotool", "key", "--clearmodifiers", paste_key],
                 check=False,
             )
         else:
             subprocess.run(["wl-copy", text], check=False)
-            subprocess.run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"], check=False)
+            keycodes = _YDOTOOL_CTRL_SHIFT_V if terminal else _YDOTOOL_CTRL_V
+            subprocess.run(["ydotool", "key", *keycodes], check=False)
+
+
+def _find_focused_sway(node: object) -> dict[str, object] | None:
+    if not isinstance(node, dict):
+        return None
+    if node.get("focused"):
+        return node
+    for child in list(node.get("nodes", [])) + list(node.get("floating_nodes", [])):
+        found = _find_focused_sway(child)
+        if found is not None:
+            return found
+    return None
