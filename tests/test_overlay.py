@@ -108,3 +108,21 @@ def test_overlay_tclerror_surfaced(capsys: pytest.CaptureFixture[str]) -> None:
         overlay = OverlayUI(config)
     assert overlay._root is None
     assert "overlay disabled" in capsys.readouterr().err
+
+
+def test_poll_survives_tclerror_in_show() -> None:
+    """_poll() must reschedule itself even when _show_internal() raises TclError."""
+    config = UIConfig(overlay=True)
+    with patch("voxy.overlay.tk") as mock_tk:
+        mock_root = MagicMock()
+        mock_tk.Tk.return_value = mock_root
+        mock_tk.TclError = tk.TclError
+
+        overlay = OverlayUI(config)
+        mock_root.after.reset_mock()
+        mock_root.deiconify.side_effect = tk.TclError("connection lost")
+
+        overlay.show()
+        overlay._poll()  # must not raise; next poll must be scheduled
+
+        mock_root.after.assert_called_once_with(50, overlay._poll)

@@ -85,6 +85,8 @@ class OverlayUI:
                     self._hide_internal()
         except queue.Empty:
             pass
+        except tk.TclError:
+            pass
         if self._root:
             self._root.after(50, self._poll)
 
