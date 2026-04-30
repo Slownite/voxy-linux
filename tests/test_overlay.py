@@ -1,6 +1,9 @@
 """Tests for the Overlay UI."""
 
+import tkinter as tk
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from voxy.config import UIConfig
 from voxy.overlay import OverlayUI
@@ -94,3 +97,14 @@ def test_overlay_geometry_corners() -> None:
         overlay.show()
         overlay._poll()
         mock_root.geometry.assert_called_with("80x28+20+1032")
+
+
+def test_overlay_tclerror_surfaced(capsys: pytest.CaptureFixture[str]) -> None:
+    """TclError from tk.Tk() is printed to stderr and overlay is silently disabled."""
+    config = UIConfig(overlay=True)
+    with patch("voxy.overlay.tk") as mock_tk:
+        mock_tk.TclError = tk.TclError
+        mock_tk.Tk.side_effect = tk.TclError("no display")
+        overlay = OverlayUI(config)
+    assert overlay._root is None
+    assert "overlay disabled" in capsys.readouterr().err

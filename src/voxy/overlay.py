@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import time
 import tkinter as tk
 
@@ -35,7 +36,11 @@ class OverlayUI:
         self._label = None
         self._queue: queue.Queue[str] = queue.Queue()
         if self._config.overlay:
-            self._root = tk.Tk()
+            try:
+                self._root = tk.Tk()
+            except tk.TclError as exc:
+                print(f"voxy: overlay disabled — {exc}", file=sys.stderr)
+                return
             self._root.withdraw()
             try:
                 self._root.overrideredirect(True)
