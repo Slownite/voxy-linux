@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import errno
 import grp
 import os
 import threading
@@ -143,13 +142,6 @@ class HotkeyListener:
         def run_device(dev: evdev.InputDevice) -> None:  # type: ignore[type-arg]
             nonlocal pressed
             try:
-                dev.grab()
-            except OSError as e:
-                if e.errno == errno.EBUSY:
-                    dev.close()
-                    return
-                raise
-            try:
                 for event in dev.read_loop():
                     if self._stop_event.is_set():
                         break
@@ -163,7 +155,7 @@ class HotkeyListener:
                             pressed = False
                             self._on_release()
             finally:
-                dev.ungrab()
+                dev.close()
 
         threads = [
             threading.Thread(target=run_device, args=(dev,), daemon=True)
