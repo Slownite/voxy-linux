@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+
+_DETECT_TIMEOUT: float = 0.5  # seconds — detection must not block the insert flow
 
 _TERMINAL_CLASSES: frozenset[str] = frozenset({
     "konsole", "org.kde.konsole",
@@ -42,8 +45,17 @@ class TextInserter:
             return self._focused_class_hyprland()
         if os.environ.get("SWAYSOCK"):
             return self._focused_class_sway()
+        # GNOME native Wayland without XWayland: try gdbus before xdotool
+        if (
+            os.environ.get("XDG_CURRENT_DESKTOP", "").lower() == "gnome"
+            and os.environ.get("WAYLAND_DISPLAY")
+            and not os.environ.get("DISPLAY")
+        ):
+            return self._focused_class_gnome_wayland()
         if os.environ.get("DISPLAY"):
             return self._focused_class_x11()
+        # GNOME Wayland with XWayland present: xdotool already tried above;
+        # fall back to gdbus for native Wayland apps that xdotool can't see
         if (
             os.environ.get("XDG_CURRENT_DESKTOP", "").lower() == "gnome"
             and os.environ.get("WAYLAND_DISPLAY")
@@ -52,28 +64,39 @@ class TextInserter:
         return ""
 
     def _focused_class_x11(self) -> str:
-        win = subprocess.run(
-            ["xdotool", "getactivewindow"],
-            capture_output=True, text=True, check=False,
-        )
+        try:
+            win = subprocess.run(
+                ["xdotool", "getactivewindow"],
+                capture_output=True, text=True, check=False,
+                timeout=_DETECT_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return ""
         if win.returncode != 0 or not win.stdout.strip():
             return ""
-        xprop = subprocess.run(
-            ["xprop", "-id", win.stdout.strip(), "WM_CLASS"],
-            capture_output=True, text=True, check=False,
-        )
+        try:
+            xprop = subprocess.run(
+                ["xprop", "-id", win.stdout.strip(), "WM_CLASS"],
+                capture_output=True, text=True, check=False,
+                timeout=_DETECT_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return ""
         if xprop.returncode != 0:
             return ""
         return xprop.stdout.lower()
 
     def _focused_class_hyprland(self) -> str:
-        result = subprocess.run(
-            ["hyprctl", "activewindow", "-j"],
-            capture_output=True, text=True, check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["hyprctl", "activewindow", "-j"],
+                capture_output=True, text=True, check=False,
+                timeout=_DETECT_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return ""
         if result.returncode != 0:
             return ""
-        import json
         try:
             data: dict[str, object] = json.loads(result.stdout)
             cls = data.get("class", "")
@@ -82,13 +105,16 @@ class TextInserter:
             return ""
 
     def _focused_class_sway(self) -> str:
-        result = subprocess.run(
-            ["swaymsg", "-t", "get_tree"],
-            capture_output=True, text=True, check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["swaymsg", "-t", "get_tree"],
+                capture_output=True, text=True, check=False,
+                timeout=_DETECT_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return ""
         if result.returncode != 0:
             return ""
-        import json
         try:
             tree: dict[str, object] = json.loads(result.stdout)
             node = _find_focused_sway(tree)
@@ -102,16 +128,20 @@ class TextInserter:
             return ""
 
     def _focused_class_gnome_wayland(self) -> str:
-        result = subprocess.run(
-            [
-                "gdbus", "call", "--session",
-                "--dest", "org.gnome.Shell",
-                "--object-path", "/org/gnome/Shell",
-                "--method", "org.gnome.Shell.Eval",
-                "global.display.get_focus_window().get_wm_class()",
-            ],
-            capture_output=True, text=True, check=False,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "gdbus", "call", "--session",
+                    "--dest", "org.gnome.Shell",
+                    "--object-path", "/org/gnome/Shell",
+                    "--method", "org.gnome.Shell.Eval",
+                    "global.display.get_focus_window().get_wm_class()",
+                ],
+                capture_output=True, text=True, check=False,
+                timeout=_DETECT_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return ""
         if result.returncode != 0:
             return ""
         # gdbus output: "(true, 'Alacritty')\n"
