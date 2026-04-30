@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import grp
 import os
 import threading
@@ -133,7 +134,14 @@ class HotkeyListener:
 
         keyboard = self._find_evdev_device(code)
         pressed = False
-        keyboard.grab()
+        try:
+            keyboard.grab()
+        except OSError as e:
+            if e.errno == errno.EBUSY:
+                keyboard.close()
+                self._run_pynput()
+                return
+            raise
         try:
             for event in keyboard.read_loop():
                 if self._stop_event.is_set():
