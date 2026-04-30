@@ -21,17 +21,18 @@ def test_overlay_show_hide() -> None:
     config = UIConfig(overlay=True)
     with patch("voxy.overlay.tk") as mock_tk:
         mock_root = MagicMock()
-        mock_root.after.side_effect = lambda ms, func, *args: func(*args)
         mock_tk.Tk.return_value = mock_root
-        
+
         overlay = OverlayUI(config)
-        
+
         overlay.show()
+        overlay._poll()
         mock_root.deiconify.assert_called_once()
         mock_root.update.assert_called()
-        
+
         overlay.hide()
         overlay.hide()
+        overlay._poll()
         mock_root.withdraw.assert_called()
 
 
@@ -39,31 +40,34 @@ def test_overlay_geometry_corners() -> None:
     """Test geometry calculation for different corners."""
     with patch("voxy.overlay.tk") as mock_tk:
         mock_root = MagicMock()
-        mock_root.after.side_effect = lambda ms, func, *args: func(*args)
         mock_root.winfo_screenwidth.return_value = 1920
         mock_root.winfo_screenheight.return_value = 1080
         mock_tk.Tk.return_value = mock_root
-        
+
         # Test bottom-right
         config = UIConfig(overlay=True, overlay_corner="bottom-right")
         overlay = OverlayUI(config)
         overlay.show()
+        overlay._poll()
         mock_root.geometry.assert_called_with("24x24+1876+1036")  # 1920-20-24, 1080-20-24
-        
+
         # Test top-left
         config = UIConfig(overlay=True, overlay_corner="top-left")
         overlay = OverlayUI(config)
         overlay.show()
+        overlay._poll()
         mock_root.geometry.assert_called_with("24x24+20+20")
-        
+
         # Test top-right
         config = UIConfig(overlay=True, overlay_corner="top-right")
         overlay = OverlayUI(config)
         overlay.show()
+        overlay._poll()
         mock_root.geometry.assert_called_with("24x24+1876+20")
-        
+
         # Test bottom-left
         config = UIConfig(overlay=True, overlay_corner="bottom-left")
         overlay = OverlayUI(config)
         overlay.show()
+        overlay._poll()
         mock_root.geometry.assert_called_with("24x24+20+1036")
