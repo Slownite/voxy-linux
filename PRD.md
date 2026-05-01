@@ -100,7 +100,7 @@ voxy is a local, offline voice dictation tool for Linux (X11 and Wayland). The u
 
 ## Out of Scope
 
-- GPU / CUDA support (noted as a future upgrade path; faster-whisper supports it without API changes)
+- GPU / CUDA support — promoted to its own section below; see **GPU Inference**
 - Wake-word / always-on detection mode
 - Speaker diarization
 - Audio feedback sound files (feature is stubbed; sounds can be added later)
@@ -130,3 +130,90 @@ voxy is a local, offline voice dictation tool for Linux (X11 and Wayland). The u
 | [#9](https://github.com/Slownite/voxy/issues/9) | Audio feedback |
 | [#10](https://github.com/Slownite/voxy/issues/10) | Daemon mode + systemd user service |
 | [#11](https://github.com/Slownite/voxy/issues/11) | NixOS module |
+| [#27](https://github.com/Slownite/voxy-linux/issues/27) | GPU inference (CUDA) |
+
+---
+
+## GPU Inference
+
+> Added: 2026-05-01
+
+## Problem Statement
+
+Users with NVIDIA GPUs cannot leverage their hardware for faster transcription. The current CPU-only implementation, while optimized with INT8 quantization via faster-whisper, is significantly slower than GPU-accelerated inference — particularly for larger, more accurate Whisper models. This prevents users who own capable hardware from getting the best accuracy-to-latency trade-off voxy can offer.
+
+## Solution
+
+Add optional CUDA GPU acceleration to voxy's transcription pipeline. When a compatible NVIDIA GPU is present, voxy automatically selects it and picks the best compute type for that GPU's compute capability — including older cards like the GTX 1080 Ti (Pascal, CC 6.1). Users without a GPU experience no change: the app silently falls back to CPU inference with no configuration required. A separate `nix develop .#cuda` dev shell provides a CUDA-enabled environment without touching the default CPU shell.
+
+## User Stories
+
+1. As a user with an NVIDIA GPU, I want voxy to automatically use my GPU for transcription, so that I get faster inference without any manual configuration.
+2. As a user with an older GPU (e.g. GTX 1080 Ti / Pascal architecture), I want voxy to select a compatible compute type automatically, so that GPU acceleration works even though my card does not support INT8 quantization.
+3. As a user with a Turing or newer GPU (RTX 20xx+), I want voxy to use INT8+float16 mixed precision automatically, so that I get the fastest possible inference my hardware supports.
+4. As a user without an NVIDIA GPU, I want voxy to silently fall back to CPU mode, so that my experience is identical to today and I do not need to change my config.
+5. As a power user, I want to set `device = "cpu"` in my config to force CPU mode even when a GPU is present, so that I can control resource usage.
+6. As a power user, I want to set `device = "cuda"` in my config to explicitly request GPU mode, so that I get a clear log warning if my GPU is unavailable and the app falls back to CPU.
+7. As a user, I want the selected device and compute type to be logged at startup, so that I can confirm which hardware path is active without reading source code.
+8. As a developer on NixOS, I want a `nix develop .#cuda` shell that provides CUDA-enabled faster-whisper, so that I can develop and test the GPU path reproducibly.
+9. As a developer, I want the default `nix develop` shell to remain unchanged, so that contributors without a GPU are unaffected.
+10. As a NixOS user, I want GPU inference to work with my system-level NVIDIA driver, so that I do not need any additional manual setup beyond what NixOS already provides.
+11. As a developer, I want GPU-specific tests to be automatically skipped when no CUDA device is present, so that the test suite runs cleanly on CPU-only machines and in CI.
+
+## Implementation Decisions
+
+### Modules modified
+
+- **Transcriber** — add device/compute type resolution at model initialization. The existing `transcribe(audio)` public interface is unchanged; only the constructor gains awareness of the `device` config field.
+- **ModelConfig** — add a `device: str` field with a default of `"auto"`. Accepts `"auto"`, `"cpu"`, or `"cuda"`. Existing config files that omit this field continue to work with no changes.
+- **Nix flake** — add a `.#cuda` devShell output. This shell uses a second nixpkgs import configured with `allowUnfree = true` and `cudaSupport = true`, producing a CUDA-enabled faster-whisper/CTranslate2. The default devShell is not modified.
+
+### Device and compute type auto-detection
+
+At model initialization, the Transcriber resolves device and compute type as follows:
+
+- If `device = "cpu"`: use `cpu` / `int8` (current behavior).
+- If `device = "cuda"`: attempt CUDA; if no CUDA device is detected, log a warning and fall back to `cpu` / `int8`.
+- If `device = "auto"` (default): use CUDA if any CUDA device is detected, otherwise fall back to `cpu` / `int8` silently.
+
+When CUDA is selected, the best compute type is determined by querying CTranslate2 for the supported compute types on the current device, then selecting from this priority list:
+
+1. `int8_float16` — Turing and newer (CC 7.5+)
+2. `float16` — Pascal and newer (CC 6.0+, includes GTX 1080 Ti)
+3. `float32` — universal fallback
+
+### Hardware scope
+
+- NVIDIA GPUs from Pascal (GTX 10xx, CC 6.1) through current architectures are supported.
+- ROCm (AMD) support is explicitly deferred.
+
+### Backward compatibility
+
+The `device` field defaults to `"auto"`, so existing config files require no changes. Behavior on CPU-only machines is identical to the current release.
+
+## Testing Decisions
+
+**What makes a good test:** tests verify observable behavior through the module's public interface. The GPU tests assert that the Transcriber initializes without error on a CUDA device and returns a valid transcription — not that specific internal parameters were passed to CTranslate2.
+
+**Auto-skip condition:** all GPU tests check `ctranslate2.get_cuda_device_count() > 0` at collection time and skip if no device is found. No pytest markers or CLI flags are required.
+
+**Modules tested:**
+
+- **Transcriber (GPU path)** — following the existing integration test pattern (short fixture wav files, assert non-empty string returned), run with `device = "cuda"` and `device = "auto"` on a machine with a GPU.
+- **Transcriber (fallback)** — assert that initializing with `device = "cuda"` on a CPU-only machine logs a warning and falls back gracefully (can be tested anywhere by temporarily hiding CUDA devices).
+
+**Modules not tested:** flake devShell correctness (verified manually).
+
+## Out of Scope
+
+- ROCm / AMD GPU support
+- Automatic model size upgrade when a GPU is detected (user controls model size via existing `size` config field)
+- Multi-GPU selection or device index configuration
+- Windows or macOS GPU support
+- Non-NixOS Linux distributions (Arch, Ubuntu, etc.) — the `.#cuda` shell targets NixOS only
+
+## Further Notes
+
+- CTranslate2 (the backend used by faster-whisper) exposes `get_supported_compute_types("cuda")` which makes compute capability detection library-native — no dependency on torch or direct NVIDIA API calls is needed.
+- The GTX 1080 Ti (Pascal, CC 6.1) does not have Tensor Cores, so `float16` inference yields a more modest GPU speedup than on Turing+ hardware. This is expected and acceptable.
+- GPU inference is most impactful when the user switches from `small` to `large-v3` — the latency difference between CPU and GPU grows significantly with model size.
