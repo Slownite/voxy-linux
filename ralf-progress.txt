@@ -1,0 +1,6 @@
+---
+issue: #27 GPU inference (CUDA)
+date: 2026-05-01
+status: done
+summary: Added device field to ModelConfig and CUDA auto-detection to Transcriber. Compute type priority (int8_float16 > float16 > float32) resolved via ctranslate2 at init. GPU tests auto-skip on CPU-only machines. PR #31 opened.
+---
