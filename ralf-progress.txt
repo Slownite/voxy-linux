@@ -1,6 +1,6 @@
 ---
-issue: #27 GPU inference (CUDA)
+issue: #30 GPU auto-detection and compute type selection in Transcriber
 date: 2026-05-01
 status: done
-summary: Added device field to ModelConfig and CUDA auto-detection to Transcriber. Compute type priority (int8_float16 > float16 > float32) resolved via ctranslate2 at init. GPU tests auto-skip on CPU-only machines. PR #31 opened.
+summary: Core device/compute resolution (_resolve_device_and_compute using ctranslate2.get_supported_compute_types) was already implemented in PR #31 (issue #27). Added info-level logging for CPU paths at init so startup device/compute_type is visible regardless of hardware — GPU paths already logged. Added test verifying the info log fires on Transcriber init. 7 tests pass, 2 GPU tests auto-skip (no CUDA). mypy --strict clean.
 ---
