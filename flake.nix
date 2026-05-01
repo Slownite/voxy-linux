@@ -28,10 +28,11 @@
           ])
           ++ [ ps."faster-whisper" ];
 
-        # System-level CLI tools for text insertion
+        # System-level CLI tools for text insertion and window detection
         systemDeps = with pkgs; [
           xclip
           xdotool
+          xprop
           wl-clipboard
           ydotool
         ];

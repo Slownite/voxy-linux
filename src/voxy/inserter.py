@@ -70,21 +70,18 @@ class TextInserter:
                 capture_output=True, text=True, check=False,
                 timeout=_DETECT_TIMEOUT,
             )
-        except subprocess.TimeoutExpired:
-            return ""
-        if win.returncode != 0 or not win.stdout.strip():
-            return ""
-        try:
+            if win.returncode != 0 or not win.stdout.strip():
+                return ""
             xprop = subprocess.run(
                 ["xprop", "-id", win.stdout.strip(), "WM_CLASS"],
                 capture_output=True, text=True, check=False,
                 timeout=_DETECT_TIMEOUT,
             )
-        except subprocess.TimeoutExpired:
+            if xprop.returncode != 0:
+                return ""
+            return xprop.stdout.lower()
+        except (subprocess.TimeoutExpired, OSError):
             return ""
-        if xprop.returncode != 0:
-            return ""
-        return xprop.stdout.lower()
 
     def _focused_class_hyprland(self) -> str:
         try:
@@ -93,15 +90,12 @@ class TextInserter:
                 capture_output=True, text=True, check=False,
                 timeout=_DETECT_TIMEOUT,
             )
-        except subprocess.TimeoutExpired:
-            return ""
-        if result.returncode != 0:
-            return ""
-        try:
+            if result.returncode != 0:
+                return ""
             data: dict[str, object] = json.loads(result.stdout)
             cls = data.get("class", "")
             return str(cls).lower() if cls else ""
-        except (json.JSONDecodeError, KeyError):
+        except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, KeyError):
             return ""
 
     def _focused_class_sway(self) -> str:
@@ -111,11 +105,8 @@ class TextInserter:
                 capture_output=True, text=True, check=False,
                 timeout=_DETECT_TIMEOUT,
             )
-        except subprocess.TimeoutExpired:
-            return ""
-        if result.returncode != 0:
-            return ""
-        try:
+            if result.returncode != 0:
+                return ""
             tree: dict[str, object] = json.loads(result.stdout)
             node = _find_focused_sway(tree)
             if node is None:
@@ -124,7 +115,7 @@ class TextInserter:
             if isinstance(app_id, dict):
                 app_id = app_id.get("class", "")
             return str(app_id).lower() if app_id else ""
-        except (json.JSONDecodeError, KeyError, AttributeError):
+        except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, KeyError, AttributeError):
             return ""
 
     def _focused_class_gnome_wayland(self) -> str:
@@ -140,19 +131,22 @@ class TextInserter:
                 capture_output=True, text=True, check=False,
                 timeout=_DETECT_TIMEOUT,
             )
-        except subprocess.TimeoutExpired:
+            if result.returncode != 0:
+                return ""
+            # gdbus output: "(true, 'Alacritty')\n"
+            out = result.stdout.strip()
+            if not out.startswith("(true,"):
+                return ""
+            return out.split(",", 1)[-1].strip(" ')\"").lower()
+        except (subprocess.TimeoutExpired, OSError):
             return ""
-        if result.returncode != 0:
-            return ""
-        # gdbus output: "(true, 'Alacritty')\n"
-        out = result.stdout.strip()
-        if not out.startswith("(true,"):
-            return ""
-        return out.split(",", 1)[-1].strip(" ')\"").lower()
 
     def _is_terminal_focused(self) -> bool:
-        cls = self._focused_class()
-        return any(t in cls for t in _TERMINAL_CLASSES)
+        try:
+            cls = self._focused_class()
+            return any(t in cls for t in _TERMINAL_CLASSES)
+        except Exception:
+            return False
 
     def insert(self, text: str) -> None:
         backend = self._backend()

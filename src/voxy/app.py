@@ -71,7 +71,9 @@ class App:
         audio = self._recorder.stop()
         self._overlay.processing()
         self._feedback.play_stop()
-        text = self._transcriber.transcribe(audio)
-        text = self._postprocessor.process(text)
-        self._inserter.insert(text)
-        self._overlay.hide()
+        try:
+            text = self._transcriber.transcribe(audio)
+            text = self._postprocessor.process(text)
+            self._inserter.insert(text)
+        finally:
+            self._overlay.hide()
