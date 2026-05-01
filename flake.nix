@@ -12,6 +12,15 @@
         pkgs = nixpkgs.legacyPackages.${system};
         py = pkgs.python313;
 
+        cudaPkgs = import nixpkgs {
+          inherit system;
+          config = {
+            allowUnfree = true;
+            cudaSupport = true;
+          };
+        };
+        cudaPy = cudaPkgs.python313;
+
         # Packages available under python3Packages.<name>
         # faster-whisper uses quoted attr due to hyphen in name.
         pythonDeps = ps:
@@ -57,6 +66,16 @@
 
           shellHook = ''
             echo "voxy dev — $(python --version)"
+          '';
+        };
+
+        devShells.cuda = cudaPkgs.mkShell {
+          packages =
+            [ (cudaPy.withPackages pythonDeps) ]
+            ++ systemDeps;
+
+          shellHook = ''
+            echo "voxy cuda dev — $(python --version)"
           '';
         };
       }
