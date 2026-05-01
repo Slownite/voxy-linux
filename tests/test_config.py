@@ -136,6 +136,7 @@ def test_env_var_missing_file_returns_defaults(tmp_path: Path, monkeypatch: pyte
 
 @pytest.mark.parametrize(("toml", "fragment"), [
     ('[model]\nsize = "giant"', r"\[model\] size"),
+    ('[model]\ndevice = "rocm"', r"\[model\] device"),
     ('[insertion]\nmethod = "clipboard"', r"\[insertion\] method"),
     ('[logging]\nlevel = "verbose"', r"\[logging\] level"),
     ('[ui]\noverlay_corner = "center"', r"\[ui\] overlay_corner"),
@@ -145,4 +146,26 @@ def test_env_var_missing_file_returns_defaults(tmp_path: Path, monkeypatch: pyte
 def test_invalid_value_raises(tmp_path: Path, toml: str, fragment: str) -> None:
     path = _write(tmp_path, toml)
     with pytest.raises(ConfigError, match=fragment):
+        ConfigLoader(path).load()
+
+
+# ---------------------------------------------------------------------------
+# ModelConfig.device field
+# ---------------------------------------------------------------------------
+
+def test_model_config_device_default(tmp_path: Path) -> None:
+    cfg = ConfigLoader(tmp_path / "absent.toml").load()
+    assert cfg.model.device == "auto"
+
+
+def test_model_config_device_valid_values(tmp_path: Path) -> None:
+    for device in ("auto", "cpu", "cuda"):
+        path = _write(tmp_path, f'[model]\ndevice = "{device}"\n')
+        cfg = ConfigLoader(path).load()
+        assert cfg.model.device == device
+
+
+def test_model_config_device_invalid(tmp_path: Path) -> None:
+    path = _write(tmp_path, '[model]\ndevice = "rocm"\n')
+    with pytest.raises(ConfigError, match=r"\[model\] device"):
         ConfigLoader(path).load()
