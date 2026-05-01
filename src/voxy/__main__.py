@@ -42,7 +42,7 @@ def main() -> None:
     config = ConfigLoader().load()
     App(
         AudioRecorder(),
-        Transcriber(model_size=config.model.size),
+        Transcriber(model_size=config.model.size, device=config.model.device),
         TextInserter(config.insertion.method),
         PostProcessor(config.post_processing),
         OverlayUI(config.ui),
