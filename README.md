@@ -16,6 +16,12 @@ Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× fa
 
 That's it.
 
+A small overlay appears in a configurable screen corner:
+
+- **REC** (red) — microphone is active
+- **…** (amber) — transcribing and processing
+- Overlay disappears once text is inserted
+
 ---
 
 ## Quick start
@@ -67,6 +73,10 @@ audio_feedback = false
 [logging]
 level = "info"
 ```
+
+**Terminal paste:** when a terminal emulator is the active window (alacritty, kitty, ghostty, gnome-terminal, konsole), voxy automatically uses Ctrl+Shift+V instead of Ctrl+V. No configuration needed.
+
+**Config path override:** set `VOXY_CONFIG=/path/to/config.toml` to point voxy at a specific file. This takes priority over `~/.config/voxy/config.toml`.
 
 ---
 
@@ -129,17 +139,54 @@ services.voxy = {
 };
 ```
 
-> **Note:** The NixOS module generates a `config.toml` from your declared options and passes it to the service via `VOXY_CONFIG`. If you also have a `~/.config/voxy/config.toml`, that file takes priority — giving you a per-user escape hatch over system-level defaults.
+> **Note:** The NixOS module generates a `config.toml` from your declared options and passes it to the service via `VOXY_CONFIG`. `VOXY_CONFIG` takes priority over `~/.config/voxy/config.toml` — so the system-level declaration wins unless you run voxy manually without the env var set.
 
 ---
 
 ## Development
 
 ```bash
-nix develop        # enter the dev shell (Python + all deps)
-pytest             # run the test suite
-mypy src/          # strict type check
+nix develop                         # enter the dev shell (Python + all deps)
+nix develop --command pytest        # run the test suite
+nix develop --command mypy --strict src/   # strict type check
 ```
+
+---
+
+## Troubleshooting
+
+**Overlay not visible when running as a service**
+
+The service starts after `graphical-session.target`, but display auth (`XAUTHORITY`) may not be ready immediately. If `journalctl --user -u voxy.service` shows "overlay disabled", add a short delay:
+
+```nix
+# configuration.nix
+systemd.user.services.voxy.serviceConfig.ExecStartPre = "/bin/sleep 2";
+```
+
+**Indicator stays amber / nothing is pasted**
+
+Make sure you have rebuilt after any `flake.nix` change:
+
+```bash
+sudo nixos-rebuild switch
+```
+
+Or run from the dev shell directly — the installed package won't pick up source changes:
+
+```bash
+nix develop --command python -m voxy
+```
+
+**Hotkey not captured**
+
+Your user must be in the `input` group:
+
+```nix
+users.users.your-username.extraGroups = [ "input" ];
+```
+
+Apply with `sudo nixos-rebuild switch`, then log out and back in.
 
 ---
 
