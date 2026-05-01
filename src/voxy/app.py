@@ -71,9 +71,15 @@ class App:
         audio = self._recorder.stop()
         self._overlay.processing()
         self._feedback.play_stop()
-        try:
-            text = self._transcriber.transcribe(audio)
-            text = self._postprocessor.process(text)
-            self._inserter.insert(text)
-        finally:
-            self._overlay.hide()
+
+        def _pipeline() -> None:
+            try:
+                text = self._transcriber.transcribe(audio)
+                text = self._postprocessor.process(text)
+                self._inserter.insert(text)
+            except Exception:
+                pass
+            finally:
+                self._overlay.hide()
+
+        threading.Thread(target=_pipeline, daemon=True).start()
