@@ -22,6 +22,7 @@ _COMPUTE_TYPE_PRIORITY: list[str] = ["int8_float16", "float16", "float32"]
 def _resolve_device_and_compute(device: str) -> tuple[str, str]:
     """Return (ct2_device, compute_type) given a user device setting."""
     if device == "cpu":
+        _log.info("voxy: device=cpu compute_type=int8")
         return "cpu", "int8"
 
     cuda_count = ctranslate2.get_cuda_device_count()
@@ -31,10 +32,12 @@ def _resolve_device_and_compute(device: str) -> tuple[str, str]:
             _log.warning(
                 "device='cuda' requested but no CUDA device found; falling back to CPU"
             )
+            _log.info("voxy: device=cpu compute_type=int8")
             return "cpu", "int8"
 
     elif device == "auto":
         if cuda_count == 0:
+            _log.info("voxy: device=cpu compute_type=int8")
             return "cpu", "int8"
 
     supported = ctranslate2.get_supported_compute_types("cuda")

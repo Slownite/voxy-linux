@@ -77,6 +77,15 @@ def test_cpu_explicit_transcribes() -> None:
     assert "hello" in result.lower()
 
 
+def test_device_and_compute_logged_at_init(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="voxy.transcriber"):
+        Transcriber(device="cpu")
+    info_msgs = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert any("cpu" in r.message and "int8" in r.message for r in info_msgs), (
+        "Expected info log with device=cpu and compute_type=int8 at init"
+    )
+
+
 def test_auto_falls_back_to_cpu_silently(caplog: pytest.LogCaptureFixture) -> None:
     if _CUDA_AVAILABLE:
         pytest.skip("CUDA present — auto will use GPU, not CPU fallback")
