@@ -30,12 +30,16 @@ from .config import UIConfig
 
 _log = logging.getLogger(__name__)
 
-_FRAME_SIZE = 80
-_FRAME_STROKE = 3
+# Arrow outline geometry (hotspot at tip = cursor position).
+# All coords are relative to the hotspot (0, 0).
+# Standard left-pointing arrow: shaft length ~22px, width ~8px at base.
+_ARROW_STROKE = 2.0
+_ARROW_SIZE = 22      # total arrow length (tip to tail)
+_ARROW_WIDTH = 8      # base width of the arrowhead body
+# Status rect
 _RECT_W = 90
 _RECT_H = 22
-_RECT_OFFSET = 24
-_THROTTLE_S = 1 / 60
+_RECT_OFFSET = 26
 
 _COLOR_RECORDING  = "#22cc55"
 _COLOR_PROCESSING = "#ffaa00"
@@ -121,7 +125,7 @@ class _X11CursorOverlay:
         canvas.pack()
         canvas.create_rectangle(
             1, 1, _RECT_W - 1, _RECT_H - 1,
-            outline=_COLOR_RECORDING, fill=_TRANSPARENT, width=_FRAME_STROKE,
+            outline=_COLOR_RECORDING, fill=_TRANSPARENT, width=int(_ARROW_STROKE),
             tags="border",
         )
         canvas.create_text(
@@ -206,7 +210,7 @@ class _X11CursorOverlay:
 
         if pending_move is not None and self._visible:
             now = time.monotonic()
-            if now - self._last_apply >= _THROTTLE_S:
+            if now - self._last_apply >= 1 / 60:
                 self._last_pos = pending_move
                 self._reposition()
                 self._last_apply = now
@@ -260,12 +264,13 @@ class _X11CursorOverlay:
 
     def _reposition(self) -> None:
         x, y = self._last_pos
-        half = _FRAME_SIZE // 2
+        _SZ, _SW = 40, 2  # X11 square frame size / stroke width
+        half = _SZ // 2
         layouts = [
-            (_FRAME_SIZE, _FRAME_STROKE, x - half, y - half),
-            (_FRAME_SIZE, _FRAME_STROKE, x - half, y + half - _FRAME_STROKE),
-            (_FRAME_STROKE, _FRAME_SIZE, x - half, y - half),
-            (_FRAME_STROKE, _FRAME_SIZE, x + half - _FRAME_STROKE, y - half),
+            (_SZ, _SW, x - half, y - half),
+            (_SZ, _SW, x - half, y + half - _SW),
+            (_SW, _SZ, x - half, y - half),
+            (_SW, _SZ, x + half - _SW, y - half),
         ]
         for strip, (w, h, sx, sy) in zip(self._strips, layouts, strict=True):
             try:
@@ -328,6 +333,106 @@ def _hyprland_cursorpos(sock_path: str) -> tuple[int, int] | None:
 
 
 # ---------------------------------------------------------------------------
+# Xcursor helpers
+# ---------------------------------------------------------------------------
+
+def _find_xcursor_file(cursor_name: str = "default") -> Path | None:
+    """Locate an xcursor file by searching standard icon theme directories."""
+    theme = os.environ.get("XCURSOR_THEME", "")
+    search_dirs = [
+        Path.home() / ".local" / "share" / "icons",
+        Path.home() / ".icons",
+        Path("/usr/share/icons"),
+        Path("/usr/local/share/icons"),
+    ]
+    themes = [theme] if theme else []
+    themes += ["Adwaita", "default", "hicolor"]
+    for td in search_dirs:
+        for t in themes:
+            if not t:
+                continue
+            candidate = td / t / "cursors" / cursor_name
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def _parse_xcursor(path: Path, target_size: int) -> tuple[int, int, int, int, list[int]] | None:
+    """Parse an Xcursor file; return (width, height, xhot, yhot, argb_pixels)."""
+    import struct  # noqa: PLC0415
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if data[:4] != b"Xcur":
+        return None
+    ntoc = struct.unpack_from("<I", data, 12)[0]
+    chunks: list[tuple[int, int]] = []
+    off = 16
+    for _ in range(ntoc):
+        typ, subtype, pos = struct.unpack_from("<III", data, off)
+        off += 12
+        if typ == 0xFFFD0002:
+            chunks.append((subtype, pos))
+    if not chunks:
+        return None
+    chunks.sort(key=lambda c: abs(c[0] - target_size))
+    _, pos = chunks[0]
+    try:
+        _, _, _, _, w, h, xhot, yhot, _ = struct.unpack_from("<IIIIIIIII", data, pos)
+        pixels = list(struct.unpack_from(f"<{w * h}I", data, pos + 36))
+    except struct.error:
+        return None
+    return w, h, xhot, yhot, pixels
+
+
+def _build_cursor_outline(
+    path: Path, target_size: int, color_rgb: tuple[float, float, float], halo: int = 2
+) -> tuple[Any, int, int] | None:
+    """Return (cairo_surface, xhot, yhot) — a colored outline of the cursor shape.
+
+    The outline is produced by painting the tinted cursor in 8 directions (halo),
+    then punching out the exact cursor shape with DEST_OUT, leaving only the border.
+    Returns None if the cursor file cannot be parsed.
+    """
+    import cairo  # noqa: PLC0415
+
+    parsed = _parse_xcursor(path, target_size)
+    if parsed is None:
+        return None
+    w, h, xhot, yhot, pixels = parsed
+    r_c, g_c, b_c = (int(c * 255) for c in color_rgb)
+
+    # Build tinted cursor surface (premultiplied ARGB32).
+    tinted = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    buf = tinted.get_data()
+    for i, p in enumerate(pixels):
+        a = (p >> 24) & 0xFF
+        o = i * 4
+        buf[o + 0] = b_c * a // 255
+        buf[o + 1] = g_c * a // 255
+        buf[o + 2] = r_c * a // 255
+        buf[o + 3] = a
+    tinted.mark_dirty()
+
+    # Paint halo onto temp surface then punch hole.
+    pad = halo + 1
+    tw, th = w + pad * 2, h + pad * 2
+    temp = cairo.ImageSurface(cairo.FORMAT_ARGB32, tw, th)
+    tc = cairo.Context(temp)
+    offsets = [(ox, oy) for ox in range(-halo, halo + 1)
+               for oy in range(-halo, halo + 1) if ox or oy]
+    for ox, oy in offsets:
+        tc.set_source_surface(tinted, pad + ox, pad + oy)
+        tc.paint()
+    tc.set_operator(cairo.Operator.DEST_OUT)
+    tc.set_source_surface(tinted, pad, pad)
+    tc.paint()
+
+    return temp, xhot + pad, yhot + pad
+
+
+# ---------------------------------------------------------------------------
 # Wayland back-end
 # ---------------------------------------------------------------------------
 
@@ -357,16 +462,38 @@ class _WaylandCursorOverlay:
         self._visible = False
         self._state = "recording"
         self._cursor_xy: tuple[int, int] = (-9999, -9999)  # invalid until first poll
-        # List of (window, area, offset_x, offset_y, bounds_x, bounds_y, bounds_w, bounds_h)
         # one entry per GDK monitor, filled in _on_activate.
         self._outputs: list[dict[str, Any]] = []
-        self._timeout_id: int | None = None
         self._app: Any = None
         self._ready = threading.Event()
+        self._polling = threading.Event()  # set while cursor polling should run
+
+        # Pre-built cursor outline surfaces keyed by state.
+        # Built once at init; None means fall back to status-rect-only drawing.
+        cursor_size = int(os.environ.get("XCURSOR_SIZE", "24"))
+        cursor_file = _find_xcursor_file("default")
+        self._cursor_outlines: dict[str, Any] = {}
+        self._cursor_hot: tuple[int, int] = (0, 0)
+        if cursor_file:
+            for state, rgb in (
+                ("recording", _COLOR_RECORDING_RGB),
+                ("processing", _COLOR_PROCESSING_RGB),
+            ):
+                result = _build_cursor_outline(cursor_file, cursor_size, rgb)
+                if result is not None:
+                    surf, xhot, yhot = result
+                    self._cursor_outlines[state] = surf
+                    self._cursor_hot = (xhot, yhot)
+            if not self._cursor_outlines:
+                _log.debug("voxy: cursor outline unavailable, using rect indicator")
 
         t = threading.Thread(target=self._run_gtk, daemon=True)
         t.start()
         self._ready.wait(timeout=5.0)
+
+        # Cursor poller runs on its own thread — never blocks the GTK loop.
+        p = threading.Thread(target=self._poll_cursor, daemon=True)
+        p.start()
 
     def _run_gtk(self) -> None:
         self._app = self._Gtk.Application(application_id="com.voxy.cursor_overlay")
@@ -461,12 +588,21 @@ class _WaylandCursorOverlay:
             x, y = gx - out["ox"], gy - out["oy"]
             rgb = _COLOR_RECORDING_RGB if self._state == "recording" else _COLOR_PROCESSING_RGB
 
-            half = _FRAME_SIZE / 2
-            cr.set_source_rgba(*rgb, 1.0)
-            cr.set_line_width(_FRAME_STROKE)
-            cr.rectangle(x - half, y - half, _FRAME_SIZE, _FRAME_SIZE)
-            cr.stroke()
+            # Cursor outline: exact xcursor shape tinted in status color.
+            outline_surf = self._cursor_outlines.get(self._state)
+            if outline_surf is not None:
+                xhot, yhot = self._cursor_hot
+                cr.set_source_surface(outline_surf, x - xhot, y - yhot)
+                cr.paint()
+            else:
+                # Fallback: simple square contour.
+                half = 16.0
+                cr.set_source_rgba(*rgb, 1.0)
+                cr.set_line_width(_ARROW_STROKE)
+                cr.rectangle(x - half, y - half, half * 2, half * 2)
+                cr.stroke()
 
+            # Status rect below-right of hotspot.
             rx = x + _RECT_OFFSET
             ry = y + _RECT_OFFSET
             if rx + _RECT_W > w:
@@ -474,7 +610,7 @@ class _WaylandCursorOverlay:
             if ry + _RECT_H > h:
                 ry = y - _RECT_OFFSET - _RECT_H
             cr.set_source_rgba(*rgb, 1.0)
-            cr.set_line_width(_FRAME_STROKE)
+            cr.set_line_width(_ARROW_STROKE)
             cr.rectangle(rx, ry, _RECT_W, _RECT_H)
             cr.stroke()
 
@@ -489,76 +625,81 @@ class _WaylandCursorOverlay:
             cr.show_text(text)
         return _draw
 
-    def _tick(self) -> bool:
-        if not self._visible:
-            return False
-        pos = _hyprland_cursorpos(self._sock_path)
-        if pos is not None and pos != self._cursor_xy:
-            self._cursor_xy = pos
-            gx, gy = pos
-            for out in self._outputs:
-                active = (out["bx"] <= gx < out["bx"] + out["bw"]
-                          and out["by"] <= gy < out["by"] + out["bh"])
-                if active:
-                    out["linger"] = 2  # keep drawing for 2 more frames after leaving
-                elif out["linger"] > 0:
-                    out["linger"] -= 1
-                    active = True  # treat as still active to avoid blank frame
-                if active or out["was_active"]:
-                    area = out.get("area")
-                    if area is not None:
-                        area.queue_draw()
-                out["was_active"] = active
-        return True
+    def _poll_cursor(self) -> None:
+        """Dedicated thread: poll Hyprland IPC as fast as possible when visible.
 
-    def _ensure_timeout(self) -> None:
-        if self._timeout_id is None:
-            self._timeout_id = self._GLib.timeout_add(16, self._tick)
+        Pushes position updates onto the GTK main loop via idle_add so the
+        GTK thread never blocks on IPC. Sleeps when invisible to avoid
+        burning CPU while idle.
+        """
+        while True:
+            if not self._polling.wait(timeout=1.0):
+                continue
+            pos = _hyprland_cursorpos(self._sock_path)
+            if pos is not None and pos != self._cursor_xy:
+                captured = pos
 
-    def _drop_timeout(self) -> None:
-        if self._timeout_id is not None:
-            try:
-                self._GLib.source_remove(self._timeout_id)
-            except Exception:
-                pass
-            self._timeout_id = None
+                def push(p: tuple[int, int] = captured) -> bool:
+                    self._on_cursor_move(p)
+                    return False
+
+                try:
+                    self._GLib.idle_add(push)
+                except Exception:
+                    pass
+            time.sleep(0.008)  # ~120 Hz ceiling
+
+    def _on_cursor_move(self, pos: tuple[int, int]) -> None:
+        """GTK-thread handler: update cursor pos and redraw affected outputs."""
+        self._cursor_xy = pos
+        gx, gy = pos
+        for out in self._outputs:
+            active = (out["bx"] <= gx < out["bx"] + out["bw"]
+                      and out["by"] <= gy < out["by"] + out["bh"])
+            if active:
+                out["linger"] = 2
+            elif out["linger"] > 0:
+                out["linger"] -= 1
+                active = True
+            if active or out["was_active"]:
+                area = out.get("area")
+                if area is not None:
+                    area.queue_draw()
+            out["was_active"] = active
+
+    def _redraw_all(self) -> None:
+        for out in self._outputs:
+            area = out.get("area")
+            if area is not None:
+                area.queue_draw()
 
     def show(self) -> None:
         def do() -> bool:
             self._state = "recording"
             self._visible = True
-            for out in self._outputs:
-                area = out.get("area")
-                if area is not None:
-                    area.queue_draw()
-            self._ensure_timeout()
+            self._polling.set()
+            self._redraw_all()
             return False
         self._GLib.idle_add(do)
 
     def processing(self) -> None:
         def do() -> bool:
             self._state = "processing"
-            for out in self._outputs:
-                area = out.get("area")
-                if area is not None:
-                    area.queue_draw()
+            self._redraw_all()
             return False
         self._GLib.idle_add(do)
 
     def hide(self) -> None:
         def do() -> bool:
             self._visible = False
-            self._drop_timeout()
-            for out in self._outputs:
-                area = out.get("area")
-                if area is not None:
-                    area.queue_draw()
+            self._polling.clear()
+            self._redraw_all()
             return False
         self._GLib.idle_add(do)
 
     def stop(self) -> None:
+        self._polling.clear()
         def do() -> bool:
-            self._drop_timeout()
             if self._app is not None:
                 self._app.quit()
             return False
