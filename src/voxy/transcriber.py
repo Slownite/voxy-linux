@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import logging
 from pathlib import Path
 
@@ -18,6 +19,34 @@ _log = logging.getLogger(__name__)
 
 _COMPUTE_TYPE_PRIORITY: list[str] = ["int8_float16", "float16", "float32"]
 
+# Versioned sonames ctranslate2 4.x lazy-dlopen at inference time.
+# Update _CT2_CUBLAS_VERSION when upgrading ctranslate2 to a new major.
+_CT2_CUBLAS_VERSION = "12"
+
+
+def _cuda_device_count() -> int:
+    try:
+        return ctranslate2.get_cuda_device_count()
+    except (OSError, RuntimeError) as exc:
+        _log.warning("voxy: CUDA unavailable (%s); falling back to CPU", exc)
+        return 0
+
+
+def _cuda_libs_available() -> bool:
+    """Return False if any CUDA shared library ctranslate2 needs cannot be loaded.
+
+    ctranslate2 lazy-dlopen versioned names at inference time. Probe early so
+    we fall back to CPU before loading the model, not mid-transcription.
+    """
+    v = _CT2_CUBLAS_VERSION
+    for lib in (f"libcublas.so.{v}", f"libcublasLt.so.{v}"):
+        try:
+            ctypes.CDLL(lib)
+        except OSError as exc:
+            _log.warning("voxy: CUDA library %s cannot be loaded (%s); falling back to CPU", lib, exc)
+            return False
+    return True
+
 
 def _resolve_device_and_compute(device: str) -> tuple[str, str]:
     """Return (ct2_device, compute_type) given a user device setting."""
@@ -25,14 +54,11 @@ def _resolve_device_and_compute(device: str) -> tuple[str, str]:
         _log.info("voxy: device=cpu compute_type=int8")
         return "cpu", "int8"
 
-    cuda_count = ctranslate2.get_cuda_device_count()
+    cuda_count = _cuda_device_count()
 
     if device == "cuda":
         if cuda_count == 0:
-            _log.warning(
-                "device='cuda' requested but no CUDA device found; falling back to CPU"
-            )
-            _log.info("voxy: device=cpu compute_type=int8")
+            _log.warning("device='cuda' requested but no CUDA device found; falling back to CPU")
             return "cpu", "int8"
 
     elif device == "auto":
@@ -40,7 +66,15 @@ def _resolve_device_and_compute(device: str) -> tuple[str, str]:
             _log.info("voxy: device=cpu compute_type=int8")
             return "cpu", "int8"
 
-    supported = ctranslate2.get_supported_compute_types("cuda")
+    if not _cuda_libs_available():
+        return "cpu", "int8"
+
+    try:
+        supported = ctranslate2.get_supported_compute_types("cuda")
+    except (OSError, RuntimeError) as exc:
+        _log.warning("voxy: CUDA compute type query failed (%s); falling back to CPU", exc)
+        return "cpu", "int8"
+
     for ct in _COMPUTE_TYPE_PRIORITY:
         if ct in supported:
             _log.info("voxy: device=cuda compute_type=%s", ct)
@@ -48,6 +82,11 @@ def _resolve_device_and_compute(device: str) -> tuple[str, str]:
 
     _log.info("voxy: device=cuda compute_type=float32 (fallback)")
     return "cuda", "float32"
+
+
+def _run_transcribe(model: WhisperModel, audio: npt.NDArray[np.float32]) -> str:
+    segments, _info = model.transcribe(audio, language=None, beam_size=5)
+    return "".join(segment.text for segment in segments).strip()
 
 
 class Transcriber:
@@ -97,10 +136,14 @@ class Transcriber:
         """
         if audio.size == 0:
             return ""
-        model = self._get_model()
-        segments, _info = model.transcribe(
-            audio,
-            language=None,  # auto-detect
-            beam_size=5,
-        )
-        return "".join(segment.text for segment in segments).strip()
+        try:
+            return _run_transcribe(self._get_model(), audio)
+        except (OSError, RuntimeError) as exc:
+            if self._ct2_device == "cpu":
+                raise
+            _log.warning("voxy: CUDA inference failed (%s); retrying on CPU", exc)
+            self._model = None
+            self._ct2_device = "cpu"
+            self._compute_type = "int8"
+            _log.info("voxy: permanently switched to CPU for this session")
+            return _run_transcribe(self._get_model(), audio)
