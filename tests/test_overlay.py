@@ -58,7 +58,7 @@ def test_overlay_processing() -> None:
         overlay.processing()
         overlay._poll()
         mock_root.configure.assert_called_with(bg="#ffaa00")
-        mock_label.configure.assert_called_with(bg="#ffaa00", text="…")
+        mock_label.configure.assert_called_with(bg="#ffaa00", text="PROCESSING")
         mock_root.withdraw.assert_not_called()
 
 
@@ -75,28 +75,28 @@ def test_overlay_geometry_corners() -> None:
         overlay = OverlayUI(config)
         overlay.show()
         overlay._poll()
-        mock_root.geometry.assert_called_with("80x28+1820+1032")
+        mock_root.geometry.assert_called_with("120x28+1780+1032")
 
         # Test top-left
         config = UIConfig(overlay=True, overlay_corner="top-left")
         overlay = OverlayUI(config)
         overlay.show()
         overlay._poll()
-        mock_root.geometry.assert_called_with("80x28+20+20")
+        mock_root.geometry.assert_called_with("120x28+20+20")
 
         # Test top-right: 1920-80-20=1820
         config = UIConfig(overlay=True, overlay_corner="top-right")
         overlay = OverlayUI(config)
         overlay.show()
         overlay._poll()
-        mock_root.geometry.assert_called_with("80x28+1820+20")
+        mock_root.geometry.assert_called_with("120x28+1780+20")
 
         # Test bottom-left: 1080-28-20=1032
         config = UIConfig(overlay=True, overlay_corner="bottom-left")
         overlay = OverlayUI(config)
         overlay.show()
         overlay._poll()
-        mock_root.geometry.assert_called_with("80x28+20+1032")
+        mock_root.geometry.assert_called_with("120x28+20+1032")
 
 
 def test_overlay_tclerror_surfaced(capsys: pytest.CaptureFixture[str]) -> None:
