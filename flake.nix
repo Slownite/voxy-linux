@@ -35,6 +35,7 @@
             setuptools
             build
             twine
+            dbus-next
           ])
           ++ [ ps."faster-whisper" ];
 
