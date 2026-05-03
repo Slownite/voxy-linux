@@ -45,7 +45,6 @@ def test_valid_full_config(tmp_path: Path) -> None:
         [model]
         size = "base"
         language = "fr"
-        fallback_language = "en"
 
         [insertion]
         method = "wayland"

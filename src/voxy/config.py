@@ -11,8 +11,8 @@ from typing import Any, cast
 XDG_CONFIG_PATH: Path = Path.home() / ".config" / "voxy" / "config.toml"
 VOXY_CONFIG_ENV: str = "VOXY_CONFIG"
 
-_VALID_MODEL_SIZES: frozenset[str] = frozenset(
-    {"tiny", "tiny.en", "base", "base.en", "small", "small.en",
+VALID_MODEL_SIZES: frozenset[str] = frozenset(
+    {"auto", "tiny", "tiny.en", "base", "base.en", "small", "small.en",
      "medium", "medium.en", "large-v1", "large-v2", "large-v3"}
 )
 _VALID_DEVICE_OPTIONS: frozenset[str] = frozenset({"auto", "cpu", "cuda"})
@@ -79,9 +79,8 @@ class HotkeyConfig:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    size: str = "small"
+    size: str = "auto"
     language: str = "auto"
-    fallback_language: str = "en"
     device: str = "auto"
 
 
@@ -115,6 +114,8 @@ class UIConfig:
     overlay: bool = True
     overlay_corner: str = "bottom-right"
     audio_feedback: bool = False
+    notify: bool = True
+    tray: bool = True
 
 
 @dataclass(frozen=True)
@@ -159,6 +160,13 @@ class ConfigLoader:
         else:
             self._config_path = XDG_CONFIG_PATH
 
+    @property
+    def config_path(self) -> Path:
+        return self._config_path
+
+    def is_first_run(self) -> bool:
+        return not self._config_path.exists()
+
     def load(self) -> Config:
         """Return a fully populated Config from file.
 
@@ -166,7 +174,7 @@ class ConfigLoader:
         config file are created, then all-defaults are returned.
         """
         if not self._config_path.exists():
-            self._write_default()
+            self.write_default()
             return Config()
         with open(self._config_path, "rb") as fh:
             raw: dict[str, Any] = tomllib.load(fh)
@@ -180,10 +188,11 @@ class ConfigLoader:
         )
 
 
-    def _write_default(self) -> None:
+    def write_default(self, model_size: str = "auto") -> None:
         """Create XDG dir and write a commented default config file."""
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        self._config_path.write_text(_DEFAULT_CONFIG_TOML, encoding="utf-8")
+        toml = _DEFAULT_CONFIG_TOML.replace('size = "auto"', f'size = "{model_size}"', 1)
+        self._config_path.write_text(toml, encoding="utf-8")
 
 
 _DEFAULT_CONFIG_TOML: str = """\
@@ -195,15 +204,13 @@ _DEFAULT_CONFIG_TOML: str = """\
 key = "right_alt"
 
 [model]
-# Whisper model size. Options: tiny, tiny.en, base, base.en, small, small.en,
+# Whisper model size. Options: auto, tiny, tiny.en, base, base.en, small, small.en,
 # medium, medium.en, large-v1, large-v2, large-v3
-size = "small"
+# "auto" picks the largest size your CPU can run near-realtime (or "small" on GPU).
+size = "auto"
 
 # Language for transcription. "auto" detects per utterance.
 language = "auto"
-
-# Fallback language when auto-detection confidence is low.
-fallback_language = "en"
 
 # Inference device. Options: auto, cpu, cuda
 # "auto" uses GPU when available and falls back to CPU silently.
@@ -234,6 +241,10 @@ overlay = true
 # Corner for the overlay. Options: top-left, top-right, bottom-left, bottom-right
 overlay_corner = "bottom-right"
 audio_feedback = false
+# Send a desktop notification when transcript is copied to clipboard.
+notify = true
+# Show a system tray icon (StatusNotifierItem) with status + menu.
+tray = true
 
 [logging]
 # Options: debug, info, warning, error
@@ -253,9 +264,8 @@ def _parse_hotkey(t: dict[str, Any]) -> HotkeyConfig:
 
 def _parse_model(t: dict[str, Any]) -> ModelConfig:
     return ModelConfig(
-        size=_as_one_of(t.get("size", ModelConfig.size), _VALID_MODEL_SIZES, "[model] size"),
+        size=_as_one_of(t.get("size", ModelConfig.size), VALID_MODEL_SIZES, "[model] size"),
         language=_as_nonempty_str(t.get("language", ModelConfig.language), "[model] language"),
-        fallback_language=_as_nonempty_str(t.get("fallback_language", ModelConfig.fallback_language), "[model] fallback_language"),
         device=_as_one_of(t.get("device", ModelConfig.device), _VALID_DEVICE_OPTIONS, "[model] device"),
     )
 
@@ -289,6 +299,8 @@ def _parse_ui(t: dict[str, Any]) -> UIConfig:
         overlay=_as_bool(t.get("overlay", defaults.overlay), "[ui] overlay"),
         overlay_corner=_as_one_of(t.get("overlay_corner", defaults.overlay_corner), _VALID_OVERLAY_CORNERS, "[ui] overlay_corner"),
         audio_feedback=_as_bool(t.get("audio_feedback", defaults.audio_feedback), "[ui] audio_feedback"),
+        notify=_as_bool(t.get("notify", defaults.notify), "[ui] notify"),
+        tray=_as_bool(t.get("tray", defaults.tray), "[ui] tray"),
     )
 
 

@@ -2,12 +2,50 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import threading
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import sounddevice as sd
+
+_PACTL_TIMEOUT: float = 0.5
+
+
+def _resolve_default_pactl_source() -> str:
+    """Return the description of the system default source via pactl, or ''."""
+    if not shutil.which("pactl"):
+        return ""
+    try:
+        result = subprocess.run(
+            ["pactl", "get-default-source"],
+            capture_output=True, text=True, check=False, timeout=_PACTL_TIMEOUT,
+        )
+        if result.returncode != 0:
+            return ""
+        default_name = result.stdout.strip()
+        if not default_name:
+            return ""
+
+        listing = subprocess.run(
+            ["pactl", "list", "sources"],
+            capture_output=True, text=True, check=False, timeout=_PACTL_TIMEOUT,
+        )
+        if listing.returncode != 0:
+            return default_name  # fall back to the raw source name
+
+        current_name = ""
+        for raw_line in listing.stdout.splitlines():
+            line = raw_line.strip()
+            if line.startswith("Name:"):
+                current_name = line.split(":", 1)[1].strip()
+            elif line.startswith("Description:") and current_name == default_name:
+                return line.split(":", 1)[1].strip()
+        return default_name
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
 
 SAMPLE_RATE: int = 16_000  # Hz — faster-whisper expects 16 kHz
 CHANNELS: int = 1
@@ -32,6 +70,28 @@ class AudioRecorder:
         self._chunks = []
         self._stream = None
         self._lock = threading.Lock()
+
+    @staticmethod
+    def default_input_name() -> str:
+        """Return the default input device's display name.
+
+        If sounddevice reports a generic alias ("default", "pulse", "sysdefault"),
+        resolve the underlying source via pactl and append it in parentheses.
+        """
+        try:
+            info: dict[str, Any] = sd.query_devices(kind="input")  # type: ignore[assignment]
+            sd_name = str(info.get("name", "")) if isinstance(info, dict) else ""
+        except Exception:
+            sd_name = ""
+
+        if not sd_name:
+            return "(unknown)"
+
+        if sd_name.lower() in {"default", "pulse", "sysdefault", "pipewire"}:
+            real = _resolve_default_pactl_source()
+            if real:
+                return f"{sd_name} ({real})"
+        return sd_name
 
     def start(self) -> None:
         """Begin capturing audio from the default input device."""

@@ -19,6 +19,7 @@ dependencies = [
     "evdev; sys_platform == 'linux'",
     "pynput",
     "numpy",
+    "dbus-next",
 ]
 
 [project.scripts]
@@ -28,7 +29,7 @@ voxy = "voxy.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-voxy = ["*.wav"]
+voxy = ["*.wav", "icons/*.svg"]
 
 [project.optional-dependencies]
 dev = ["pytest", "mypy"]
