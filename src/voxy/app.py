@@ -74,7 +74,9 @@ class App:
             self._tray.start()
             self._tray.set_state("idle")
         device = self._transcriber._ct2_device.upper()
+        mic = AudioRecorder.default_input_name()
         print(f"voxy — hold hotkey to dictate. Ctrl-C to quit. [{device}]")
+        print(f"voxy: input → {mic}", flush=True)
         try:
             if self._overlay._root:
                 self._overlay.wait_loop()
