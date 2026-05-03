@@ -3,14 +3,35 @@
 from __future__ import annotations
 
 import grp
+import io
 import logging
 import os
+import sys
 import threading
 from collections.abc import Callable
 
 import evdev
 import evdev.ecodes as ecodes
-from pynput import keyboard as kb
+
+
+def _import_pynput():  # type: ignore[return]
+    # On Wayland, pynput falls back to its X11 backend but xauth is empty/missing,
+    # causing a noisy print(). Suppress stdout only during import on Wayland; on
+    # X11 pynput is a real fallback and its warnings are meaningful.
+    # Evaluated once at import time; env must be set before this module loads.
+    if os.environ.get("WAYLAND_DISPLAY"):
+        saved, sys.stdout = sys.stdout, io.StringIO()
+        try:
+            from pynput import keyboard as _kb
+        finally:
+            sys.stdout = saved
+    else:
+        from pynput import keyboard as _kb
+    return _kb
+
+
+kb = _import_pynput()
+del _import_pynput
 
 # ---------------------------------------------------------------------------
 # Key-name resolution
