@@ -32,7 +32,7 @@ where = ["src"]
 voxy = ["*.wav", "icons/*.svg"]
 
 [project.optional-dependencies]
-dev = ["pytest", "mypy"]
+dev = ["pytest", "mypy", "ruff"]
 # Wayland (Hyprland) cursor overlay — needs system gtk4 + gtk4-layer-shell
 # packages too (see presetup-arch.sh).
 cursor-overlay = ["pygobject", "pycairo"]

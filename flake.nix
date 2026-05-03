@@ -32,6 +32,7 @@
             numpy
             mypy
             pytest
+            ruff
             setuptools
             build
             twine
