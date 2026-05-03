@@ -209,10 +209,53 @@ services.voxy = {
 
 ## Development
 
+### Setup
+
 ```bash
-nix develop                         # enter the dev shell (Python + all deps)
-nix develop --command pytest        # run the test suite
-nix develop --command mypy --strict src/   # strict type check
+git clone https://github.com/Slownite/voxy-linux
+cd voxy-linux
+just setup          # install deps + dev extras into .venv
+```
+
+### Common tasks
+
+```bash
+just run            # run from source
+just test           # run test suite
+just typecheck      # mypy --strict
+just build          # build wheel → dist/
+just install        # build + pipx install
+just clean          # remove dist/ and .venv/
+```
+
+### Repo stats
+
+```bash
+just count_lines            # total Python LOC
+just top_files              # top 20 files by size
+just modules                # list all modules
+just test_ratio             # test-to-source ratio
+just todos                  # TODO/FIXME markers
+just churn                  # commit hotspots
+just deps                   # dependency counts
+```
+
+### Without just (manual)
+
+```bash
+uv sync --extra dev
+uv run python -m voxy
+uv run pytest
+uv run mypy --strict src/
+uv build
+```
+
+### NixOS dev shell
+
+```bash
+nix develop                              # enter shell with Python + all deps
+nix develop --command pytest             # run tests
+nix develop --command mypy --strict src/ # type check
 ```
 
 ---
