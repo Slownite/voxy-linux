@@ -68,8 +68,13 @@ That's it.
 A small overlay appears in a configurable screen corner:
 
 - **REC** (red) — microphone is active
-- **…** (amber) — transcribing and processing
+- **PROCESSING** (amber) — transcribing
 - Overlay disappears once text is inserted
+
+A tray icon (StatusNotifierItem — works in waybar, KDE, GNOME with the
+right extension) mirrors the same three states and offers a right-click
+**Quit** entry. A short toast notification is shown each time a
+transcript lands in your clipboard. Both are toggleable in `config.toml`.
 
 ---
 
@@ -82,7 +87,15 @@ voxy --daemon remove        # stop and remove the service
 voxy --daemon status        # check service status
 ```
 
-On first run a default config is written to `~/.config/voxy/config.toml` and the Whisper model is downloaded to `~/.cache/voxy/models/`.
+On first run, voxy prompts for a Whisper model size (default: **auto**,
+which picks `tiny`/`base`/`small` based on your CPU's core count and
+AVX/VNNI flags, or `small` on GPU). The default config is written to
+`~/.config/voxy/config.toml` and the model is downloaded to
+`~/.cache/voxy/models/` with a tqdm progress bar. Subsequent runs skip
+the prompt and reuse the cached model.
+
+> Set `HF_TOKEN` (or run `huggingface-cli login`) to avoid Hugging Face
+> rate limits during the download.
 
 ---
 
