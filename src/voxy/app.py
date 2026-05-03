@@ -6,6 +6,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from .audio import AudioRecorder, AudioFeedback
+from .cursor_overlay import CursorOverlay, _NullCursorOverlay
 from .hotkey import HotkeyListener, check_input_group
 from .inserter import TextInserter, check_tools
 from .overlay import OverlayUI
@@ -24,6 +25,7 @@ class App:
     _inserter: TextInserter
     _postprocessor: PostProcessor
     _overlay: OverlayUI
+    _cursor_overlay: CursorOverlay
     _feedback: AudioFeedback
     _key: str
     _tray: TrayIcon | None
@@ -39,6 +41,7 @@ class App:
         feedback: AudioFeedback,
         key: str = "right_alt",
         tray: TrayIcon | None = None,
+        cursor_overlay: CursorOverlay | None = None,
     ) -> None:
         self._recorder = recorder
         self._transcriber = transcriber
@@ -48,6 +51,7 @@ class App:
         self._feedback = feedback
         self._key = key
         self._tray = tray
+        self._cursor_overlay = cursor_overlay or _NullCursorOverlay()
         self._done = threading.Event()
 
     def set_tray(self, tray: TrayIcon) -> None:
@@ -91,11 +95,13 @@ class App:
             pass
         finally:
             listener.stop()
+            self._cursor_overlay.stop()
             if self._tray:
                 self._tray.stop()
 
     def _on_press(self) -> None:
         self._overlay.show()
+        self._cursor_overlay.show()
         self._feedback.play_start()
         self._recorder.start()
         if self._tray:
@@ -105,6 +111,7 @@ class App:
     def _on_release(self) -> None:
         audio = self._recorder.stop()
         self._overlay.processing()
+        self._cursor_overlay.processing()
         self._feedback.play_stop()
         if self._tray:
             self._tray.set_state("processing")
@@ -123,6 +130,7 @@ class App:
                 print(f"voxy error: {e}", flush=True)
             finally:
                 self._overlay.hide()
+                self._cursor_overlay.hide()
                 if self._tray:
                     self._tray.set_state("idle")
 

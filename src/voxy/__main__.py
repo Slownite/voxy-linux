@@ -1,6 +1,22 @@
 """CLI entry point for voxy."""
 
 import os
+import sys
+
+# gtk4-layer-shell must be dlopened before libwayland-client; if not, layer
+# surface init silently fails and the cursor overlay is invisible.
+# Re-exec with LD_PRELOAD set if running on Wayland and not already preloaded.
+_LAYER_SHELL_SO = "/usr/lib/libgtk4-layer-shell.so"
+_PRELOAD_MARKER = "_VOXY_LAYER_SHELL_PRELOADED"
+if (
+    os.environ.get("WAYLAND_DISPLAY")
+    and os.path.exists(_LAYER_SHELL_SO)
+    and not os.environ.get(_PRELOAD_MARKER)
+):
+    _prev = os.environ.get("LD_PRELOAD", "")
+    os.environ["LD_PRELOAD"] = f"{_LAYER_SHELL_SO}:{_prev}".strip(":")
+    os.environ[_PRELOAD_MARKER] = "1"
+    os.execvp(sys.executable, [sys.executable, "-m", "voxy"] + sys.argv[1:])
 
 # Force huggingface_hub's pure-Python backend so model downloads show tqdm
 # progress bars. Must run before any hf_hub / faster_whisper import.
@@ -113,14 +129,27 @@ def main() -> None:
             return
         print("voxy: model ready.\n", flush=True)
 
+    from voxy.cursor_overlay import build_cursor_overlay, _NullCursorOverlay
+
+    cursor_ov = build_cursor_overlay(config.ui)
+
+    # Suppress corner overlay when cursor overlay is active — it already shows
+    # REC/PROCESSING next to the cursor.
+    import dataclasses  # noqa: PLC0415
+    ui_cfg = config.ui
+    if not isinstance(cursor_ov, _NullCursorOverlay) and os.environ.get("WAYLAND_DISPLAY"):
+        ui_cfg = dataclasses.replace(config.ui, overlay=False)
+
+    overlay = OverlayUI(ui_cfg)
     app = App(
         AudioRecorder(),
         transcriber,
         TextInserter(config.insertion.method, notify=config.ui.notify),
         PostProcessor(config.post_processing),
-        OverlayUI(config.ui),
+        overlay,
         AudioFeedback(config.ui),
         key=config.hotkey.key,
+        cursor_overlay=cursor_ov,
     )
 
     if config.ui.tray:
