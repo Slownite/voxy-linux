@@ -114,6 +114,8 @@ class UIConfig:
     overlay: bool = True
     overlay_corner: str = "bottom-right"
     audio_feedback: bool = False
+    notify: bool = True
+    tray: bool = True
 
 
 @dataclass(frozen=True)
@@ -239,6 +241,10 @@ overlay = true
 # Corner for the overlay. Options: top-left, top-right, bottom-left, bottom-right
 overlay_corner = "bottom-right"
 audio_feedback = false
+# Send a desktop notification when transcript is copied to clipboard.
+notify = true
+# Show a system tray icon (StatusNotifierItem) with status + menu.
+tray = true
 
 [logging]
 # Options: debug, info, warning, error
@@ -293,6 +299,8 @@ def _parse_ui(t: dict[str, Any]) -> UIConfig:
         overlay=_as_bool(t.get("overlay", defaults.overlay), "[ui] overlay"),
         overlay_corner=_as_one_of(t.get("overlay_corner", defaults.overlay_corner), _VALID_OVERLAY_CORNERS, "[ui] overlay_corner"),
         audio_feedback=_as_bool(t.get("audio_feedback", defaults.audio_feedback), "[ui] audio_feedback"),
+        notify=_as_bool(t.get("notify", defaults.notify), "[ui] notify"),
+        tray=_as_bool(t.get("tray", defaults.tray), "[ui] tray"),
     )
 
 

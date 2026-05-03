@@ -77,19 +77,29 @@ def main() -> None:
         loader.write_default(model_size=chosen)
     config = loader.load()
     lang = None if config.model.language == "auto" else config.model.language
-    App(
+
+    app = App(
         AudioRecorder(),
         Transcriber(
             model_size=config.model.size,
             device=config.model.device,
             language=lang,
         ),
-        TextInserter(config.insertion.method),
+        TextInserter(config.insertion.method, notify=config.ui.notify),
         PostProcessor(config.post_processing),
         OverlayUI(config.ui),
         AudioFeedback(config.ui),
         key=config.hotkey.key,
-    ).run()
+    )
+
+    if config.ui.tray:
+        try:
+            from voxy.tray import TrayIcon
+            app._tray = TrayIcon(on_quit=app.stop)
+        except ImportError as e:
+            print(f"voxy: tray disabled — install dbus-next ({e})", flush=True)
+
+    app.run()
 
 
 if __name__ == "__main__":
