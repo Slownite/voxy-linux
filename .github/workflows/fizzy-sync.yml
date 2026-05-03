@@ -1,0 +1,87 @@
+name: Sync issues to Fizzy
+
+on:
+  issues:
+    types: [opened, closed, reopened, labeled, unlabeled]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      FIZZY_TOKEN: ${{ secrets.FIZZY_TOKEN }}
+      FIZZY_ACCOUNT: "6204946"
+      FIZZY_BOARD: "03g28pn96j1udp06725pgy994"
+      FIZZY_COL_INPROG: "03g28qhmwzvwux7pfl19vg5sk"
+      FIZZY_COL_UPNEXT: "03g28qhnputdk7og182fctga0"
+
+    steps:
+      - name: Sync issue to Fizzy
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_STATE: ${{ github.event.issue.state }}
+          ISSUE_LABELS: ${{ toJson(github.event.issue.labels.*.name) }}
+          EVENT_ACTION: ${{ github.event.action }}
+        run: |
+          BASE="https://app.fizzy.do"
+          AUTH=(-H "Authorization: Bearer $FIZZY_TOKEN" -H "Accept: application/json")
+
+          has_label() {
+            echo "$ISSUE_LABELS" | jq -e --arg l "$1" 'any(. == $l)' > /dev/null
+          }
+
+          # Find existing Fizzy card by searching for the GitHub issue URL in cards
+          CARD_NUM=$(curl -s "${AUTH[@]}" \
+            "$BASE/$FIZZY_ACCOUNT/cards?board_ids[]=$FIZZY_BOARD&indexed_by=all&terms[]=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$ISSUE_URL'))")" \
+            | jq -r --arg url "$ISSUE_URL" '.[] | select(.description | contains($url)) | .number' | head -1)
+
+          if [[ -z "$CARD_NUM" ]]; then
+            # Card doesn't exist yet — create it
+            DESC="GitHub: $ISSUE_URL\n\n${ISSUE_BODY:-}"
+            LOC=$(curl -si -X POST "${AUTH[@]}" \
+              -H "Content-Type: application/json" \
+              -d "{\"card\":{\"title\":$(echo "$ISSUE_TITLE" | jq -Rs .),\"description\":$(printf '%s' "$DESC" | jq -Rs .)}}" \
+              "$BASE/$FIZZY_ACCOUNT/boards/$FIZZY_BOARD/cards" \
+              | grep -i "^location:" | tr -d '\r' | awk '{print $2}')
+            CARD_NUM=$(echo "$LOC" | grep -oP '/cards/\K[0-9]+')
+            echo "Created Fizzy card $CARD_NUM for GH #$ISSUE_NUMBER"
+          else
+            echo "Found Fizzy card $CARD_NUM for GH #$ISSUE_NUMBER"
+          fi
+
+          [[ -z "$CARD_NUM" ]] && { echo "Could not resolve card number"; exit 1; }
+
+          # Sync labels as tags
+          for label in $(echo "$ISSUE_LABELS" | jq -r '.[]'); do
+            curl -s -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
+              -d "{\"tag_title\":\"$label\"}" \
+              "$BASE/$FIZZY_ACCOUNT/cards/$CARD_NUM/taggings" > /dev/null
+          done
+
+          # Sync state
+          if [[ "$EVENT_ACTION" == "closed" ]]; then
+            curl -s -X POST "${AUTH[@]}" \
+              "$BASE/$FIZZY_ACCOUNT/cards/$CARD_NUM/closure" > /dev/null
+            echo "Closed Fizzy card $CARD_NUM"
+          elif [[ "$EVENT_ACTION" == "reopened" ]]; then
+            curl -s -X DELETE "${AUTH[@]}" \
+              "$BASE/$FIZZY_ACCOUNT/cards/$CARD_NUM/closure" > /dev/null
+            echo "Reopened Fizzy card $CARD_NUM"
+          fi
+
+          # Sync column based on labels
+          if [[ "$ISSUE_STATE" == "open" ]]; then
+            if has_label "ralf"; then
+              curl -s -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
+                -d "{\"column_id\":\"$FIZZY_COL_INPROG\"}" \
+                "$BASE/$FIZZY_ACCOUNT/cards/$CARD_NUM/triage" > /dev/null
+              echo "Moved to In Progress"
+            else
+              curl -s -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
+                -d "{\"column_id\":\"$FIZZY_COL_UPNEXT\"}" \
+                "$BASE/$FIZZY_ACCOUNT/cards/$CARD_NUM/triage" > /dev/null
+              echo "Moved to Up Next"
+            fi
+          fi
