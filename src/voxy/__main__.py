@@ -1,6 +1,13 @@
 """CLI entry point for voxy."""
 
+import os
+
+# Force huggingface_hub's pure-Python backend so model downloads show tqdm
+# progress bars. Must run before any hf_hub / faster_whisper import.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
 import argparse
+from pathlib import Path
 
 from voxy.app import App
 from voxy.audio import AudioRecorder, AudioFeedback
@@ -72,19 +79,43 @@ def main() -> None:
         return
 
     loader = ConfigLoader()
-    if loader.is_first_run():
+    first_run = loader.is_first_run()
+    if first_run:
         chosen = _prompt_model()
         loader.write_default(model_size=chosen)
     config = loader.load()
     lang = None if config.model.language == "auto" else config.model.language
 
+    transcriber = Transcriber(
+        model_size=config.model.size,
+        device=config.model.device,
+        language=lang,
+    )
+    if config.model.size == "auto":
+        print(f"voxy: auto-selected model size = {transcriber.model_size}", flush=True)
+
+    cache_display = _shorten_home(transcriber.cache_path)
+    if transcriber.is_cached():
+        print(f"voxy: model {transcriber.model_size} cached at {cache_display}", flush=True)
+    else:
+        print(
+            f"\nvoxy: downloading whisper model ({transcriber.model_size}) "
+            f"to {cache_display} — this only happens once.\n",
+            flush=True,
+        )
+        try:
+            transcriber.prefetch()
+        except KeyboardInterrupt:
+            print("\nvoxy: download cancelled.", flush=True)
+            return
+        except Exception as e:
+            print(f"voxy: model download failed: {e}", flush=True)
+            return
+        print("voxy: model ready.\n", flush=True)
+
     app = App(
         AudioRecorder(),
-        Transcriber(
-            model_size=config.model.size,
-            device=config.model.device,
-            language=lang,
-        ),
+        transcriber,
         TextInserter(config.insertion.method, notify=config.ui.notify),
         PostProcessor(config.post_processing),
         OverlayUI(config.ui),
@@ -95,12 +126,22 @@ def main() -> None:
     if config.ui.tray:
         try:
             from voxy.tray import TrayIcon
-            app._tray = TrayIcon(on_quit=app.stop)
+            app.set_tray(TrayIcon(on_quit=app.stop))
         except ImportError as e:
             print(f"voxy: tray disabled — install dbus-next ({e})", flush=True)
 
     app.run()
 
 
+def _shorten_home(path: Path) -> str:
+    """Replace $HOME with ~ for terser display."""
+    s = str(path)
+    home = str(Path.home())
+    return "~" + s[len(home):] if s.startswith(home) else s
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
