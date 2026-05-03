@@ -9,7 +9,7 @@ import tkinter as tk
 
 from .config import UIConfig
 
-_WIDTH = 80
+_WIDTH = 120
 _HEIGHT = 28
 
 _COLORS: dict[str, str] = {
@@ -18,7 +18,7 @@ _COLORS: dict[str, str] = {
 }
 _LABELS: dict[str, str] = {
     "recording": "REC",
-    "processing": "…",
+    "processing": "PROCESSING",
 }
 
 
