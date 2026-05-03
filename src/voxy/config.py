@@ -12,7 +12,7 @@ XDG_CONFIG_PATH: Path = Path.home() / ".config" / "voxy" / "config.toml"
 VOXY_CONFIG_ENV: str = "VOXY_CONFIG"
 
 VALID_MODEL_SIZES: frozenset[str] = frozenset(
-    {"tiny", "tiny.en", "base", "base.en", "small", "small.en",
+    {"auto", "tiny", "tiny.en", "base", "base.en", "small", "small.en",
      "medium", "medium.en", "large-v1", "large-v2", "large-v3"}
 )
 _VALID_DEVICE_OPTIONS: frozenset[str] = frozenset({"auto", "cpu", "cuda"})
@@ -79,9 +79,8 @@ class HotkeyConfig:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    size: str = "small"
+    size: str = "auto"
     language: str = "auto"
-    fallback_language: str = "en"
     device: str = "auto"
 
 
@@ -187,10 +186,10 @@ class ConfigLoader:
         )
 
 
-    def write_default(self, model_size: str = "small") -> None:
+    def write_default(self, model_size: str = "auto") -> None:
         """Create XDG dir and write a commented default config file."""
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        toml = _DEFAULT_CONFIG_TOML.replace('size = "small"', f'size = "{model_size}"', 1)
+        toml = _DEFAULT_CONFIG_TOML.replace('size = "auto"', f'size = "{model_size}"', 1)
         self._config_path.write_text(toml, encoding="utf-8")
 
 
@@ -203,15 +202,13 @@ _DEFAULT_CONFIG_TOML: str = """\
 key = "right_alt"
 
 [model]
-# Whisper model size. Options: tiny, tiny.en, base, base.en, small, small.en,
+# Whisper model size. Options: auto, tiny, tiny.en, base, base.en, small, small.en,
 # medium, medium.en, large-v1, large-v2, large-v3
-size = "small"
+# "auto" picks the largest size your CPU can run near-realtime (or "small" on GPU).
+size = "auto"
 
 # Language for transcription. "auto" detects per utterance.
 language = "auto"
-
-# Fallback language when auto-detection confidence is low.
-fallback_language = "en"
 
 # Inference device. Options: auto, cpu, cuda
 # "auto" uses GPU when available and falls back to CPU silently.
@@ -263,7 +260,6 @@ def _parse_model(t: dict[str, Any]) -> ModelConfig:
     return ModelConfig(
         size=_as_one_of(t.get("size", ModelConfig.size), VALID_MODEL_SIZES, "[model] size"),
         language=_as_nonempty_str(t.get("language", ModelConfig.language), "[model] language"),
-        fallback_language=_as_nonempty_str(t.get("fallback_language", ModelConfig.fallback_language), "[model] fallback_language"),
         device=_as_one_of(t.get("device", ModelConfig.device), _VALID_DEVICE_OPTIONS, "[model] device"),
     )
 

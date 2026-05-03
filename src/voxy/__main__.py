@@ -11,9 +11,10 @@ from voxy.postprocess import PostProcessor
 from voxy.transcriber import Transcriber
 
 _MODEL_MENU: list[tuple[str, str]] = [
+    ("auto",       "detect best size for your CPU/GPU (default)"),
     ("tiny",       "~39 MB  — fastest, lowest accuracy"),
     ("base",       "~74 MB  — fast, decent accuracy"),
-    ("small",      "~244 MB — good balance (default)"),
+    ("small",      "~244 MB — good balance"),
     ("medium",     "~769 MB — high accuracy, slower"),
     ("large-v3",   "~1.5 GB — best accuracy, slowest"),
 ]
@@ -23,16 +24,16 @@ def _prompt_model() -> str:
     print("\nFirst run — choose a Whisper model size:")
     print("  English-only variants (e.g. tiny.en) are faster for English-only use.\n")
     for i, (name, desc) in enumerate(_MODEL_MENU, 1):
-        marker = " *" if name == "small" else "  "
+        marker = " *" if name == "auto" else "  "
         print(f"  {i}.{marker}{name:<12} {desc}")
     print()
     while True:
         try:
-            raw = input("Enter number or model name [default: small]: ").strip()
+            raw = input("Enter number or model name [default: auto]: ").strip()
         except EOFError:
-            return "small"
+            return "auto"
         if not raw:
-            return "small"
+            return "auto"
         if raw.isdigit():
             idx = int(raw) - 1
             if 0 <= idx < len(_MODEL_MENU):
@@ -75,9 +76,14 @@ def main() -> None:
         chosen = _prompt_model()
         loader.write_default(model_size=chosen)
     config = loader.load()
+    lang = None if config.model.language == "auto" else config.model.language
     App(
         AudioRecorder(),
-        Transcriber(model_size=config.model.size, device=config.model.device),
+        Transcriber(
+            model_size=config.model.size,
+            device=config.model.device,
+            language=lang,
+        ),
         TextInserter(config.insertion.method),
         PostProcessor(config.post_processing),
         OverlayUI(config.ui),
