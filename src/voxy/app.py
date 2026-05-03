@@ -50,6 +50,10 @@ class App:
         self._tray = tray
         self._done = threading.Event()
 
+    def set_tray(self, tray: TrayIcon) -> None:
+        """Attach a tray icon. Must be called before run()."""
+        self._tray = tray
+
     def stop(self) -> None:
         """Request graceful shutdown of the run loop."""
         self._done.set()
@@ -74,8 +78,9 @@ class App:
             self._tray.start()
             self._tray.set_state("idle")
         device = self._transcriber._ct2_device.upper()
+        model = self._transcriber.model_size
         mic = AudioRecorder.default_input_name()
-        print(f"voxy — hold hotkey to dictate. Ctrl-C to quit. [{device}]")
+        print(f"voxy — hold hotkey to dictate. Ctrl-C to quit. [{model} on {device}]")
         print(f"voxy: input → {mic}", flush=True)
         try:
             if self._overlay._root:
