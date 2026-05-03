@@ -116,6 +116,7 @@ class UIConfig:
     audio_feedback: bool = False
     notify: bool = True
     tray: bool = True
+    cursor_overlay: bool = True
 
 
 @dataclass(frozen=True)
@@ -245,6 +246,9 @@ audio_feedback = false
 notify = true
 # Show a system tray icon (StatusNotifierItem) with status + menu.
 tray = true
+# Draw a green frame and status rect anchored to the mouse cursor while
+# recording. X11 / XWayland and Hyprland (Wayland) only.
+cursor_overlay = true
 
 [logging]
 # Options: debug, info, warning, error
@@ -301,6 +305,7 @@ def _parse_ui(t: dict[str, Any]) -> UIConfig:
         audio_feedback=_as_bool(t.get("audio_feedback", defaults.audio_feedback), "[ui] audio_feedback"),
         notify=_as_bool(t.get("notify", defaults.notify), "[ui] notify"),
         tray=_as_bool(t.get("tray", defaults.tray), "[ui] tray"),
+        cursor_overlay=_as_bool(t.get("cursor_overlay", defaults.cursor_overlay), "[ui] cursor_overlay"),
     )
 
 
