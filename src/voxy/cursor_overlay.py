@@ -30,12 +30,7 @@ from .config import UIConfig
 
 _log = logging.getLogger(__name__)
 
-# Arrow outline geometry (hotspot at tip = cursor position).
-# All coords are relative to the hotspot (0, 0).
-# Standard left-pointing arrow: shaft length ~22px, width ~8px at base.
-_ARROW_STROKE = 2.0
-_ARROW_SIZE = 22      # total arrow length (tip to tail)
-_ARROW_WIDTH = 8      # base width of the arrowhead body
+_ARROW_STROKE = 2.0   # stroke width for outlines (X11 and Wayland)
 # Status rect
 _RECT_W = 90
 _RECT_H = 22
@@ -317,6 +312,43 @@ def _hyprland_socket_path() -> str | None:
     return str(candidates[0] / ".socket.sock") if candidates else None
 
 
+_PLUGIN_SO = Path.home() / ".local" / "share" / "hyprland" / "plugins" / "cursor-shape-emit.so"
+
+
+def _ensure_cursor_plugin(_sock_path: str) -> None:
+    """Load cursor-shape-emit.so into Hyprland if not already loaded.
+
+    Silent no-op if the .so is missing or hyprctl is unavailable.
+    """
+    import json, subprocess  # noqa: PLC0415
+    if not _PLUGIN_SO.exists():
+        _log.debug("voxy: cursor-shape-emit.so not found at %s — shape events disabled", _PLUGIN_SO)
+        return
+    try:
+        r = subprocess.run(
+            ["hyprctl", "-j", "plugin", "list"],
+            capture_output=True, text=True, timeout=5,
+        )
+        plugins = json.loads(r.stdout) if r.returncode == 0 else []
+        if any("cursor-shape-emit" in p.get("name", "") for p in plugins):
+            _log.debug("voxy: cursor-shape-emit already loaded")
+            return
+    except Exception as exc:
+        _log.debug("voxy: plugin query failed (%s)", exc)
+
+    try:
+        result = subprocess.run(
+            ["hyprctl", "plugin", "load", str(_PLUGIN_SO)],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            _log.info("voxy: loaded cursor-shape-emit plugin")
+        else:
+            _log.warning("voxy: plugin load failed: %s", result.stderr.strip())
+    except Exception as exc:
+        _log.debug("voxy: hyprctl plugin load failed (%s)", exc)
+
+
 def _hyprland_cursorpos(sock_path: str) -> tuple[int, int] | None:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(0.1)
@@ -387,23 +419,31 @@ def _parse_xcursor(path: Path, target_size: int) -> tuple[int, int, int, int, li
 
 
 def _build_cursor_outline(
-    path: Path, target_size: int, color_rgb: tuple[float, float, float], halo: int = 2
-) -> tuple[Any, int, int] | None:
-    """Return (cairo_surface, xhot, yhot) — a colored outline of the cursor shape.
+    path: Path,
+    target_size: int,
+    color_rgb: tuple[float, float, float],
+    halo: int = 2,
+    scale: int = 1,
+) -> tuple[Any, float, float] | None:
+    """Return (cairo_surface, xhot, yhot) — a HiDPI-aware colored outline.
 
-    The outline is produced by painting the tinted cursor in 8 directions (halo),
-    then punching out the exact cursor shape with DEST_OUT, leaving only the border.
-    Returns None if the cursor file cannot be parsed.
+    Parses at target_size*scale physical pixels, sets the surface device scale
+    so GTK renders it at the correct logical size without upscale blur.
+    xhot/yhot are returned in logical (GTK) coordinates.
     """
     import cairo  # noqa: PLC0415
 
-    parsed = _parse_xcursor(path, target_size)
+    phys_size = target_size * scale
+    parsed = _parse_xcursor(path, phys_size)
     if parsed is None:
-        return None
+        parsed = _parse_xcursor(path, target_size)
+        if parsed is None:
+            return None
+        scale = 1
     w, h, xhot, yhot, pixels = parsed
     r_c, g_c, b_c = (int(c * 255) for c in color_rgb)
 
-    # Build tinted cursor surface (premultiplied ARGB32).
+    # Build tinted cursor surface (premultiplied ARGB32) — raw physical pixels.
     tinted = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
     buf = tinted.get_data()
     for i, p in enumerate(pixels):
@@ -415,7 +455,8 @@ def _build_cursor_outline(
         buf[o + 3] = a
     tinted.mark_dirty()
 
-    # Paint halo onto temp surface then punch hole.
+    # Paint halo in physical coords, punch hole, then tag the result as HiDPI.
+    # All drawing on `temp` uses physical pixel coords (device_scale not yet set).
     pad = halo + 1
     tw, th = w + pad * 2, h + pad * 2
     temp = cairo.ImageSurface(cairo.FORMAT_ARGB32, tw, th)
@@ -429,7 +470,11 @@ def _build_cursor_outline(
     tc.set_source_surface(tinted, pad, pad)
     tc.paint()
 
-    return temp, xhot + pad, yhot + pad
+    # Mark as HiDPI so GTK renders at logical size without blur.
+    temp.set_device_scale(scale, scale)
+
+    # Hotspot in logical coordinates (GTK user-space).
+    return temp, (xhot + pad) / scale, (yhot + pad) / scale
 
 
 # ---------------------------------------------------------------------------
@@ -462,38 +507,32 @@ class _WaylandCursorOverlay:
         self._visible = False
         self._state = "recording"
         self._cursor_xy: tuple[int, int] = (-9999, -9999)  # invalid until first poll
+        self._redraw_pending = False  # idle_add coalescing flag
         # one entry per GDK monitor, filled in _on_activate.
         self._outputs: list[dict[str, Any]] = []
         self._app: Any = None
         self._ready = threading.Event()
-        self._polling = threading.Event()  # set while cursor polling should run
 
-        # Pre-built cursor outline surfaces keyed by state.
-        # Built once at init; None means fall back to status-rect-only drawing.
-        cursor_size = int(os.environ.get("XCURSOR_SIZE", "24"))
-        cursor_file = _find_xcursor_file("default")
+        # Cursor outline surfaces, updated when the shape changes.
+        self._cursor_size = int(os.environ.get("XCURSOR_SIZE", "24"))
+        self._gdk_scale: int = 1  # set in _on_activate from first monitor
+        self._cursor_shape = "default"
         self._cursor_outlines: dict[str, Any] = {}
-        self._cursor_hot: tuple[int, int] = (0, 0)
-        if cursor_file:
-            for state, rgb in (
-                ("recording", _COLOR_RECORDING_RGB),
-                ("processing", _COLOR_PROCESSING_RGB),
-            ):
-                result = _build_cursor_outline(cursor_file, cursor_size, rgb)
-                if result is not None:
-                    surf, xhot, yhot = result
-                    self._cursor_outlines[state] = surf
-                    self._cursor_hot = (xhot, yhot)
-            if not self._cursor_outlines:
-                _log.debug("voxy: cursor outline unavailable, using rect indicator")
+        self._cursor_hot: tuple[float, float] = (0.0, 0.0)
+        # Cache keyed by (shape_name, scale) so HiDPI changes invalidate it.
+        self._shape_cache: dict[tuple[str, int], tuple[dict[str, Any], tuple[float, float]]] = {}
+        self._lock = threading.Lock()
+
+        # socket2 path for cursor shape events (plugin must be loaded).
+        self._sock2_path = sock_path.replace(".socket.sock", ".socket2.sock")
 
         t = threading.Thread(target=self._run_gtk, daemon=True)
         t.start()
         self._ready.wait(timeout=5.0)
 
-        # Cursor poller runs on its own thread — never blocks the GTK loop.
-        p = threading.Thread(target=self._poll_cursor, daemon=True)
-        p.start()
+        # Cursor shape watcher — listens on Hyprland socket2.
+        w = threading.Thread(target=self._watch_cursor_shape, daemon=True)
+        w.start()
 
     def _run_gtk(self) -> None:
         self._app = self._Gtk.Application(application_id="com.voxy.cursor_overlay")
@@ -513,6 +552,8 @@ class _WaylandCursorOverlay:
             for i in range(n):
                 mon = mlist.get_item(i)
                 geo = mon.get_geometry()
+                if i == 0:
+                    self._gdk_scale = mon.get_scale_factor()
                 out = {
                     "win": None, "area": None,
                     "ox": geo.x, "oy": geo.y,
@@ -522,6 +563,7 @@ class _WaylandCursorOverlay:
                 }
                 self._build_window(mon, out)
                 self._outputs.append(out)
+            self._load_shape("default")
         except Exception as exc:
             _log.debug("voxy: overlay init failed (%s)", exc)
         finally:
@@ -565,6 +607,7 @@ class _WaylandCursorOverlay:
         out["win"] = win
         out["area"] = area
 
+
     def _make_draw(self, out: dict[str, Any]):  # type: ignore[return]
         """Return a draw function closed over this output's offset."""
         def _draw(_area: Any, cr: Any, w: int, h: int, _data: Any) -> None:
@@ -578,7 +621,8 @@ class _WaylandCursorOverlay:
                 return
 
             gx, gy = self._cursor_xy
-            # Draw on the output containing the cursor, or while lingering.
+            if gx == -9999:  # position not yet known
+                return
             on_this_output = (out["bx"] <= gx < out["bx"] + out["bw"]
                               and out["by"] <= gy < out["by"] + out["bh"])
             if not on_this_output and out["linger"] <= 0:
@@ -602,7 +646,7 @@ class _WaylandCursorOverlay:
                 cr.rectangle(x - half, y - half, half * 2, half * 2)
                 cr.stroke()
 
-            # Status rect below-right of hotspot.
+            # Status rect anchored near cursor hotspot.
             rx = x + _RECT_OFFSET
             ry = y + _RECT_OFFSET
             if rx + _RECT_W > w:
@@ -613,7 +657,6 @@ class _WaylandCursorOverlay:
             cr.set_line_width(_ARROW_STROKE)
             cr.rectangle(rx, ry, _RECT_W, _RECT_H)
             cr.stroke()
-
             cr.select_font_face("sans-serif")
             cr.set_font_size(12)
             text = _LABELS[self._state]
@@ -623,49 +666,119 @@ class _WaylandCursorOverlay:
                 ry + (_RECT_H + ext.height) / 2 - 1,
             )
             cr.show_text(text)
+
         return _draw
 
-    def _poll_cursor(self) -> None:
-        """Dedicated thread: poll Hyprland IPC as fast as possible when visible.
+    def _load_shape(self, shape_name: str) -> None:
+        """Build outline surfaces for shape_name; update _cursor_outlines/_cursor_hot.
 
-        Pushes position updates onto the GTK main loop via idle_add so the
-        GTK thread never blocks on IPC. Sleeps when invisible to avoid
-        burning CPU while idle.
+        Called from the shape-watcher thread (under _lock) and from __init__.
+        Falls back to "default" if the named shape file isn't found.
         """
+        with self._lock:
+            scale = self._gdk_scale
+            cache_key = (shape_name, scale)
+            if cache_key in self._shape_cache:
+                outlines, hot = self._shape_cache[cache_key]
+            else:
+                cursor_file = _find_xcursor_file(shape_name)
+                if cursor_file is None and shape_name != "default":
+                    cursor_file = _find_xcursor_file("default")
+                if cursor_file is None:
+                    return
+                outlines: dict[str, Any] = {}
+                hot: tuple[float, float] = (0.0, 0.0)
+                for state, rgb in (
+                    ("recording", _COLOR_RECORDING_RGB),
+                    ("processing", _COLOR_PROCESSING_RGB),
+                ):
+                    result = _build_cursor_outline(
+                        cursor_file, self._cursor_size, rgb, scale=scale
+                    )
+                    if result is not None:
+                        surf, xhot, yhot = result
+                        outlines[state] = surf
+                        hot = (xhot, yhot)
+                self._shape_cache[cache_key] = (outlines, hot)
+            # Atomic paired update — assign hot before outlines so worst case
+            # is one frame with new hot + old outlines (harmless offset), not crash.
+            self._cursor_hot = hot
+            self._cursor_outlines = outlines
+            self._cursor_shape = shape_name
+
+    def _watch_cursor_shape(self) -> None:
+        """Listen on Hyprland socket2 for cursorshape>> events.
+
+        Reconnects automatically if the socket drops. Calls _load_shape() on
+        each new shape, then schedules a GTK redraw via idle_add.
+        If socket2 is not available (plugin not loaded) the thread exits quietly.
+        """
+        if not self._sock2_path:
+            _log.debug("voxy: socket2 path unknown — cursor shape detection disabled")
+            return
+        import subprocess  # noqa: PLC0415
         while True:
-            if not self._polling.wait(timeout=1.0):
-                continue
-            pos = _hyprland_cursorpos(self._sock_path)
-            if pos is not None and pos != self._cursor_xy:
-                captured = pos
-
-                def push(p: tuple[int, int] = captured) -> bool:
-                    self._on_cursor_move(p)
-                    return False
-
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.connect(self._sock2_path)
+                # Ask plugin to re-emit current shape so we get initial state.
                 try:
-                    self._GLib.idle_add(push)
+                    subprocess.run(
+                        ["hyprctl", "dispatch", "cursorshapequery"],
+                        capture_output=True, timeout=2,
+                    )
                 except Exception:
                     pass
-            time.sleep(0.008)  # ~120 Hz ceiling
-
-    def _on_cursor_move(self, pos: tuple[int, int]) -> None:
-        """GTK-thread handler: update cursor pos and redraw affected outputs."""
-        self._cursor_xy = pos
-        gx, gy = pos
-        for out in self._outputs:
-            active = (out["bx"] <= gx < out["bx"] + out["bw"]
-                      and out["by"] <= gy < out["by"] + out["bh"])
-            if active:
-                out["linger"] = 2
-            elif out["linger"] > 0:
-                out["linger"] -= 1
-                active = True
-            if active or out["was_active"]:
-                area = out.get("area")
-                if area is not None:
-                    area.queue_draw()
-            out["was_active"] = active
+                buf = ""
+                while True:
+                    chunk = s.recv(4096).decode("utf-8", "replace")
+                    if not chunk:
+                        break
+                    buf += chunk
+                    if "\n" not in buf:
+                        continue
+                    # Drain all complete lines, coalescing cursormove events
+                    # to the latest position — never queue stale frames.
+                    lines, _, buf = buf.rpartition("\n")
+                    latest_move: tuple[int, int] | None = None
+                    new_shape: str | None = None
+                    for line in lines.split("\n"):
+                        if line.startswith("cursormove>>"):
+                            if not self._visible:
+                                continue
+                            try:
+                                xs, ys = line[len("cursormove>>"):].split(",", 1)
+                                latest_move = (int(xs), int(ys))
+                            except ValueError:
+                                continue
+                        elif line.startswith("cursorshape>>"):
+                            shape = line[len("cursorshape>>"):].strip()
+                            if shape and shape != self._cursor_shape:
+                                new_shape = shape
+                    if new_shape is not None:
+                        self._load_shape(new_shape)
+                    if latest_move is not None and latest_move != self._cursor_xy:
+                        self._cursor_xy = latest_move
+                        if not self._redraw_pending:
+                            self._redraw_pending = True
+                            try:
+                                self._GLib.idle_add(
+                                    self._redraw_and_clear,
+                                    priority=self._GLib.PRIORITY_HIGH,
+                                )
+                            except Exception:
+                                self._redraw_pending = False
+                    elif new_shape is not None:
+                        try:
+                            self._GLib.idle_add(self._redraw_all)
+                        except Exception:
+                            pass
+                s.close()
+            except OSError as exc:
+                _log.debug("voxy: socket2 disconnected (%s), reconnecting", exc)
+            except Exception as exc:
+                _log.debug("voxy: shape watcher error (%s)", exc)
+            time.sleep(1.0)
 
     def _redraw_all(self) -> None:
         for out in self._outputs:
@@ -673,11 +786,20 @@ class _WaylandCursorOverlay:
             if area is not None:
                 area.queue_draw()
 
+    def _redraw_and_clear(self) -> bool:
+        self._redraw_pending = False
+        self._redraw_all()
+        return False
+
     def show(self) -> None:
         def do() -> bool:
             self._state = "recording"
             self._visible = True
-            self._polling.set()
+            # Seed cursor pos on first show — cursormove only fires on motion.
+            if self._cursor_xy[0] == -9999:
+                pos = _hyprland_cursorpos(self._sock_path)
+                if pos is not None:
+                    self._cursor_xy = pos
             self._redraw_all()
             return False
         self._GLib.idle_add(do)
@@ -692,13 +814,11 @@ class _WaylandCursorOverlay:
     def hide(self) -> None:
         def do() -> bool:
             self._visible = False
-            self._polling.clear()
             self._redraw_all()
             return False
         self._GLib.idle_add(do)
 
     def stop(self) -> None:
-        self._polling.clear()
         def do() -> bool:
             if self._app is not None:
                 self._app.quit()
@@ -725,6 +845,7 @@ def build_cursor_overlay(
         if not sock_path:
             print("voxy: cursor_overlay requires Hyprland — disabled.", file=sys.stderr)
             return _NullCursorOverlay()
+        _ensure_cursor_plugin(sock_path)
         try:
             return _WaylandCursorOverlay(sock_path)
         except (ImportError, ValueError) as exc:
