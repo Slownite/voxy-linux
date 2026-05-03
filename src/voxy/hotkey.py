@@ -179,7 +179,7 @@ class HotkeyListener:
                             pressed = False
                             self._on_release()
             except OSError as exc:
-                _log.warning("evdev device lost (%s); hotkey listener falling back to pynput", exc)
+                _log.debug("evdev device lost (%s); hotkey listener falling back to pynput", exc)
             finally:
                 dev.close()
 
