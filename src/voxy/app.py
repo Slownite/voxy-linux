@@ -6,7 +6,7 @@ import threading
 
 from .audio import AudioRecorder, AudioFeedback
 from .hotkey import HotkeyListener, check_input_group
-from .inserter import TextInserter
+from .inserter import TextInserter, check_tools
 from .overlay import OverlayUI
 from .postprocess import PostProcessor
 from .transcriber import Transcriber
@@ -44,6 +44,7 @@ class App:
     def run(self) -> None:
         """Block until Ctrl-C, firing record/transcribe/insert on each press."""
         check_input_group()
+        check_tools(self._inserter._method)
         listener = HotkeyListener(
             key=self._key,
             on_press=self._on_press,
@@ -76,9 +77,13 @@ class App:
             try:
                 text = self._transcriber.transcribe(audio)
                 text = self._postprocessor.process(text)
+                if text:
+                    print(f"voxy: {text}", flush=True)
+                else:
+                    print("voxy: (no speech detected)", flush=True)
                 self._inserter.insert(text)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"voxy error: {e}", flush=True)
             finally:
                 self._overlay.hide()
 
