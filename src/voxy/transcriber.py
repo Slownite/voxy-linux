@@ -200,6 +200,7 @@ class Transcriber:
         cpu_threads: int | None = None,
     ) -> None:
         self._ct2_device, self._compute_type = _resolve_device_and_compute(device)
+        _log.info("voxy: device=%s compute_type=%s", self._ct2_device, self._compute_type)
         self._model_size_was_auto = model_size == "auto"
         if self._model_size_was_auto:
             self._model_size = (
