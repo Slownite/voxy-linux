@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import grp
+import logging
 import os
 import threading
 from collections.abc import Callable
@@ -139,6 +140,8 @@ class HotkeyListener:
         pressed = False
         pressed_lock = threading.Lock()
 
+        _log = logging.getLogger(__name__)
+
         def run_device(dev: evdev.InputDevice) -> None:  # type: ignore[type-arg]
             nonlocal pressed
             try:
@@ -154,6 +157,8 @@ class HotkeyListener:
                         elif event.value == 0 and pressed:
                             pressed = False
                             self._on_release()
+            except OSError as exc:
+                _log.warning("evdev device lost (%s); hotkey listener falling back to pynput", exc)
             finally:
                 dev.close()
 
@@ -165,6 +170,13 @@ class HotkeyListener:
             t.start()
         for t in threads:
             t.join()
+
+        # All device threads exited. If we weren't asked to stop, the devices
+        # were lost (disconnected / re-enumerated). Fall back to pynput so the
+        # service remains functional.
+        if not self._stop_event.is_set():
+            _log.info("All evdev devices gone; switching to pynput backend")
+            self._run_pynput()
 
     def _find_evdev_devices(self, code: int) -> list[evdev.InputDevice]:  # type: ignore[type-arg]
         """Return all input devices that report the given key code."""
