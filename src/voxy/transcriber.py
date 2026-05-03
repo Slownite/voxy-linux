@@ -11,11 +11,38 @@ import ctranslate2
 import numpy as np
 import numpy.typing as npt
 from faster_whisper import WhisperModel
+from faster_whisper.utils import _MODELS as _MODEL_REPO_IDS
+from huggingface_hub import snapshot_download
+
+try:
+    from huggingface_hub.utils import get_token as _hf_get_token
+except ImportError:  # older hf_hub
+    _hf_get_token = None  # type: ignore[assignment]
 
 MODEL_CACHE_DIR: Path = Path.home() / ".cache" / "voxy" / "models"
 DEFAULT_MODEL_SIZE: str = "auto"
 DEFAULT_DEVICE: str = "auto"
 DEFAULT_LANGUAGE: str | None = None
+
+_MODEL_ALLOW_PATTERNS: list[str] = [
+    "config.json",
+    "preprocessor_config.json",
+    "model.bin",
+    "tokenizer.json",
+    "vocabulary.*",
+]
+
+
+def _hf_authenticated() -> bool:
+    """True if the user has an HF token via env or `huggingface-cli login`."""
+    if os.environ.get("HF_TOKEN"):
+        return True
+    if _hf_get_token is None:
+        return False
+    try:
+        return bool(_hf_get_token())
+    except Exception:
+        return False
 
 
 def _physical_core_count() -> int:
@@ -184,6 +211,60 @@ class Transcriber:
         self._language = language
         self._cpu_threads = cpu_threads if cpu_threads is not None else _physical_core_count()
         self._model = None
+
+    @property
+    def model_size(self) -> str:
+        return self._model_size
+
+    @property
+    def cache_path(self) -> Path:
+        """Local cache directory for this model (may not exist yet)."""
+        return MODEL_CACHE_DIR / f"models--Systran--faster-whisper-{self._model_size}"
+
+    def is_cached(self) -> bool:
+        """Return True if the model weights are fully present on disk.
+
+        Checks each snapshot dir for ``model.bin`` so a partial download
+        (e.g. interrupted by Ctrl+C) is not treated as cached.
+        """
+        snapshots = self.cache_path / "snapshots"
+        if not snapshots.is_dir():
+            return False
+        for snap in snapshots.iterdir():
+            if snap.is_dir() and (snap / "model.bin").exists():
+                return True
+        return False
+
+    def prefetch(self) -> None:
+        """Download the model with visible tqdm progress, then load it.
+
+        faster_whisper hardcodes a disabled tqdm in its download helper, so
+        ``snapshot_download`` is called directly here with the default tqdm
+        class. The subsequent ``WhisperModel()`` load reuses these files.
+        """
+        if not _hf_authenticated():
+            print(
+                "voxy: downloading anonymously — set $HF_TOKEN or run "
+                "`huggingface-cli login` for higher Hugging Face rate limits.",
+                flush=True,
+            )
+        # huggingface_hub emits an "unauthenticated requests" warning mid-
+        # download via its logger, interleaving into tqdm output. Silence
+        # it for the duration of the fetch.
+        hf_logger = logging.getLogger("huggingface_hub")
+        prev_level = hf_logger.level
+        hf_logger.setLevel(logging.ERROR)
+        try:
+            repo_id = _MODEL_REPO_IDS.get(self._model_size, self._model_size)
+            MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            snapshot_download(
+                repo_id,
+                cache_dir=str(MODEL_CACHE_DIR),
+                allow_patterns=_MODEL_ALLOW_PATTERNS,
+            )
+        finally:
+            hf_logger.setLevel(prev_level)
+        self._get_model()
 
     def _get_model(self) -> WhisperModel:
         if self._model is None:
