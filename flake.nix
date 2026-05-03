@@ -34,6 +34,7 @@
             pytest
             setuptools
             build
+            twine
           ])
           ++ [ ps."faster-whisper" ];
 

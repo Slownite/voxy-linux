@@ -8,6 +8,55 @@ Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× fa
 
 ---
 
+## Installation
+
+### uvx (try without installing)
+
+```bash
+uvx voxy-linux
+```
+
+### pipx (persistent isolated install)
+
+```bash
+pipx install voxy-linux
+```
+
+### AUR (Arch / Manjaro)
+
+```bash
+yay -S voxy-linux
+```
+
+### NixOS
+
+See the [NixOS](#nixos) section below.
+
+---
+
+## Prerequisites
+
+Before installing via `pip` / `pipx` / `uvx`, install the required system packages.
+
+**Audio** (required)
+
+| Distro | Command |
+|---|---|
+| Debian / Ubuntu | `sudo apt install libportaudio2` |
+| Fedora | `sudo dnf install portaudio` |
+| Arch | `sudo pacman -S portaudio` |
+
+**Text insertion** (install the set that matches your display server)
+
+| Display server | Packages |
+|---|---|
+| X11 | `xclip` + `xdotool` |
+| Wayland | `wl-clipboard` + `ydotool` |
+
+> **macOS / Windows:** voxy is Linux-only. The package will install but will not run on other platforms.
+
+---
+
 ## How it works
 
 1. Hold the hotkey (default: **Right Alt**)
