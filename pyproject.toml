@@ -33,6 +33,9 @@ voxy = ["*.wav", "icons/*.svg"]
 
 [project.optional-dependencies]
 dev = ["pytest", "mypy"]
+# Wayland (Hyprland) cursor overlay — needs system gtk4 + gtk4-layer-shell
+# packages too (see presetup-arch.sh).
+cursor-overlay = ["pygobject", "pycairo"]
 
 # mypy config lives in mypy.ini (TOML overrides not supported in this mypy version)
 
