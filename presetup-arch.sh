@@ -18,6 +18,14 @@ if [[ -n "${WAYLAND_DISPLAY:-}" ]] || [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]
     pacman -Qi ydotool      &>/dev/null || PKGS+=(ydotool)
 fi
 
+# wayland cursor overlay (optional, opt-in via [ui] cursor_overlay)
+if [[ -n "${WAYLAND_DISPLAY:-}" ]] || [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
+    pacman -Qi gtk4               &>/dev/null || PKGS+=(gtk4)
+    pacman -Qi gtk4-layer-shell   &>/dev/null || PKGS+=(gtk4-layer-shell)
+    pacman -Qi python-gobject     &>/dev/null || PKGS+=(python-gobject)
+    pacman -Qi python-cairo       &>/dev/null || PKGS+=(python-cairo)
+fi
+
 # x11 text insertion
 if [[ -n "${DISPLAY:-}" ]] || [[ "${XDG_SESSION_TYPE:-}" == "x11" ]]; then
     pacman -Qi xclip   &>/dev/null || PKGS+=(xclip)
