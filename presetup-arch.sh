@@ -42,6 +42,18 @@ if pacman -Qi ydotool &>/dev/null; then
     fi
 fi
 
+# --- cublas .so.12 shim (faster-whisper needs .12, Arch ships cuda 13) ---
+
+CUBLAS_LIB=/opt/cuda/targets/x86_64-linux/lib
+if [[ -f "$CUBLAS_LIB/libcublas.so.13" ]] && [[ ! -e "$CUBLAS_LIB/libcublas.so.12" ]]; then
+    echo "Creating libcublas.so.12 symlink for faster-whisper compatibility..."
+    sudo ln -s "$CUBLAS_LIB/libcublas.so.13"   "$CUBLAS_LIB/libcublas.so.12"
+    sudo ln -s "$CUBLAS_LIB/libcublasLt.so.13" "$CUBLAS_LIB/libcublasLt.so.12"
+    sudo ldconfig
+else
+    [[ -e "$CUBLAS_LIB/libcublas.so.12" ]] && echo "libcublas.so.12 already present."
+fi
+
 # --- input group (needed for evdev hotkey capture) ---
 
 if getent group input &>/dev/null; then
