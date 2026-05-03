@@ -49,11 +49,16 @@ def check_tools(method: str = "auto") -> None:
             )
 
 
+_NOTIFY_PREVIEW_LIMIT: int = 200
+
+
 class TextInserter:
     _method: str
+    _notify: bool
 
-    def __init__(self, method: str = "auto") -> None:
+    def __init__(self, method: str = "auto", notify: bool = True) -> None:
         self._method = method
+        self._notify = notify
 
     def _backend(self) -> str:
         if self._method != "auto":
@@ -194,6 +199,24 @@ class TextInserter:
             subprocess.run(["wl-copy", text], check=False)
             keycodes = _YDOTOOL_CTRL_SHIFT_V if terminal else _YDOTOOL_CTRL_V
             subprocess.run(["ydotool", "key", *keycodes], check=False)
+        self._notify_copied(text)
+
+    def _notify_copied(self, text: str) -> None:
+        if not self._notify or not text:
+            return
+        if not shutil.which("notify-send"):
+            return
+        preview = text if len(text) <= _NOTIFY_PREVIEW_LIMIT else text[:_NOTIFY_PREVIEW_LIMIT - 1] + "…"
+        subprocess.Popen(
+            [
+                "notify-send",
+                "-a", "voxy",
+                "-t", "2000",
+                "-i", "edit-paste",
+                "voxy: copied to clipboard",
+                preview,
+            ],
+        )
 
 
 def _find_focused_sway(node: object) -> dict[str, object] | None:
