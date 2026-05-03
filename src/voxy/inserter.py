@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 
 _DETECT_TIMEOUT: float = 0.5  # seconds — detection must not block the insert flow
@@ -19,6 +20,33 @@ _TERMINAL_CLASSES: frozenset[str] = frozenset({
 # ydotool keycodes: 29=Ctrl, 42=Shift, 47=V
 _YDOTOOL_CTRL_V: list[str] = ["29:1", "47:1", "47:0", "29:0"]
 _YDOTOOL_CTRL_SHIFT_V: list[str] = ["29:1", "42:1", "47:1", "47:0", "42:0", "29:0"]
+
+
+def check_tools(method: str = "auto") -> None:
+    """Raise RuntimeError with install instructions if required tools are missing."""
+    if method == "auto":
+        if os.environ.get("WAYLAND_DISPLAY"):
+            method = "wayland"
+        elif os.environ.get("DISPLAY"):
+            method = "x11"
+        else:
+            return  # display detection will fail later with its own message
+
+    if method == "wayland":
+        missing = [t for t in ("wl-copy", "ydotool") if not shutil.which(t)]
+        if missing:
+            raise RuntimeError(
+                f"voxy requires {' and '.join(missing)} for Wayland text insertion.\n"
+                "  Fix: sudo pacman -S wl-clipboard ydotool\n"
+                "  Then enable the daemon: systemctl --user enable --now ydotool"
+            )
+    elif method == "x11":
+        missing = [t for t in ("xclip", "xdotool") if not shutil.which(t)]
+        if missing:
+            raise RuntimeError(
+                f"voxy requires {' and '.join(missing)} for X11 text insertion.\n"
+                "  Fix: sudo pacman -S xclip xdotool"
+            )
 
 
 class TextInserter:
