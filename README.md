@@ -123,6 +123,21 @@ audio_feedback = false
 level = "info"
 ```
 
+**GPU acceleration:** voxy auto-detects CUDA by default. To override, set `device` under `[model]`:
+
+```toml
+[model]
+device = "auto"   # auto (default) | cpu | cuda
+```
+
+- `auto` — uses the GPU if one is found, falls back to CPU silently
+- `cuda` — requires a GPU; logs a warning and falls back to CPU if none is present
+- `cpu` — always uses CPU regardless of available hardware
+
+On GPU, the compute type is selected automatically: `int8_float16` (Turing+), `float16` (Pascal+), or `float32` fallback. The selected device and compute type are logged at startup.
+
+---
+
 **Terminal paste:** when a terminal emulator is the active window (alacritty, kitty, ghostty, gnome-terminal, konsole), voxy automatically uses Ctrl+Shift+V instead of Ctrl+V. No configuration needed.
 
 **Config path override:** set `VOXY_CONFIG=/path/to/config.toml` to point voxy at a specific file. This takes priority over `~/.config/voxy/config.toml`.
