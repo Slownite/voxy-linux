@@ -8,6 +8,11 @@ setup:
 run:
     uv run python -m voxy
 
+# Wipe config so the next launch triggers the first-run prompt
+first_run:
+    rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/voxy/config.toml"
+    uv run python -m voxy
+
 # Run test suite
 test:
     uv run pytest
