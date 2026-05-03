@@ -4,11 +4,42 @@ import argparse
 
 from voxy.app import App
 from voxy.audio import AudioRecorder, AudioFeedback
-from voxy.config import ConfigLoader
+from voxy.config import ConfigLoader, VALID_MODEL_SIZES
 from voxy.inserter import TextInserter
 from voxy.overlay import OverlayUI
 from voxy.postprocess import PostProcessor
 from voxy.transcriber import Transcriber
+
+_MODEL_MENU: list[tuple[str, str]] = [
+    ("tiny",       "~39 MB  — fastest, lowest accuracy"),
+    ("base",       "~74 MB  — fast, decent accuracy"),
+    ("small",      "~244 MB — good balance (default)"),
+    ("medium",     "~769 MB — high accuracy, slower"),
+    ("large-v3",   "~1.5 GB — best accuracy, slowest"),
+]
+
+
+def _prompt_model() -> str:
+    print("\nFirst run — choose a Whisper model size:")
+    print("  English-only variants (e.g. tiny.en) are faster for English-only use.\n")
+    for i, (name, desc) in enumerate(_MODEL_MENU, 1):
+        marker = " *" if name == "small" else "  "
+        print(f"  {i}.{marker}{name:<12} {desc}")
+    print()
+    while True:
+        try:
+            raw = input("Enter number or model name [default: small]: ").strip()
+        except EOFError:
+            return "small"
+        if not raw:
+            return "small"
+        if raw.isdigit():
+            idx = int(raw) - 1
+            if 0 <= idx < len(_MODEL_MENU):
+                return _MODEL_MENU[idx][0]
+        if raw in VALID_MODEL_SIZES:
+            return raw
+        print(f"  Invalid: {raw!r}. Enter 1-{len(_MODEL_MENU)} or a model name.")
 
 
 def main() -> None:
@@ -27,7 +58,7 @@ def main() -> None:
         version="voxy 0.1.0",
     )
     args = parser.parse_args()
-    
+
     if args.daemon:
         from voxy.daemon import DaemonManager
         manager = DaemonManager()
@@ -38,8 +69,12 @@ def main() -> None:
         elif args.daemon == "status":
             manager.status()
         return
-        
-    config = ConfigLoader().load()
+
+    loader = ConfigLoader()
+    if loader.is_first_run():
+        chosen = _prompt_model()
+        loader.write_default(model_size=chosen)
+    config = loader.load()
     App(
         AudioRecorder(),
         Transcriber(model_size=config.model.size, device=config.model.device),

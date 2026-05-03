@@ -11,7 +11,7 @@ from typing import Any, cast
 XDG_CONFIG_PATH: Path = Path.home() / ".config" / "voxy" / "config.toml"
 VOXY_CONFIG_ENV: str = "VOXY_CONFIG"
 
-_VALID_MODEL_SIZES: frozenset[str] = frozenset(
+VALID_MODEL_SIZES: frozenset[str] = frozenset(
     {"tiny", "tiny.en", "base", "base.en", "small", "small.en",
      "medium", "medium.en", "large-v1", "large-v2", "large-v3"}
 )
@@ -159,6 +159,13 @@ class ConfigLoader:
         else:
             self._config_path = XDG_CONFIG_PATH
 
+    @property
+    def config_path(self) -> Path:
+        return self._config_path
+
+    def is_first_run(self) -> bool:
+        return not self._config_path.exists()
+
     def load(self) -> Config:
         """Return a fully populated Config from file.
 
@@ -166,7 +173,7 @@ class ConfigLoader:
         config file are created, then all-defaults are returned.
         """
         if not self._config_path.exists():
-            self._write_default()
+            self.write_default()
             return Config()
         with open(self._config_path, "rb") as fh:
             raw: dict[str, Any] = tomllib.load(fh)
@@ -180,10 +187,11 @@ class ConfigLoader:
         )
 
 
-    def _write_default(self) -> None:
+    def write_default(self, model_size: str = "small") -> None:
         """Create XDG dir and write a commented default config file."""
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        self._config_path.write_text(_DEFAULT_CONFIG_TOML, encoding="utf-8")
+        toml = _DEFAULT_CONFIG_TOML.replace('size = "small"', f'size = "{model_size}"', 1)
+        self._config_path.write_text(toml, encoding="utf-8")
 
 
 _DEFAULT_CONFIG_TOML: str = """\
@@ -253,7 +261,7 @@ def _parse_hotkey(t: dict[str, Any]) -> HotkeyConfig:
 
 def _parse_model(t: dict[str, Any]) -> ModelConfig:
     return ModelConfig(
-        size=_as_one_of(t.get("size", ModelConfig.size), _VALID_MODEL_SIZES, "[model] size"),
+        size=_as_one_of(t.get("size", ModelConfig.size), VALID_MODEL_SIZES, "[model] size"),
         language=_as_nonempty_str(t.get("language", ModelConfig.language), "[model] language"),
         fallback_language=_as_nonempty_str(t.get("fallback_language", ModelConfig.fallback_language), "[model] fallback_language"),
         device=_as_one_of(t.get("device", ModelConfig.device), _VALID_DEVICE_OPTIONS, "[model] device"),
