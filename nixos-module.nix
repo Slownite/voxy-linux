@@ -41,11 +41,22 @@ let
 
   configFile = pkgs.writeText "voxy-config.toml" configToml;
 
-  voxyPkg = self.packages.${pkgs.system}.default;
+  voxyPkgs = self.packages.${pkgs.system};
 in
 {
   options.services.voxy = {
     enable = lib.mkEnableOption "voxy local offline voice dictation";
+
+    displayServer = lib.mkOption {
+      type = lib.types.enum [ "wayland" "x11" ];
+      default = "wayland";
+      description = ''
+        Display server backend to use.
+        Set to <literal>x11</literal> when running an X11 desktop session;
+        the default <literal>wayland</literal> build will fail on X11 because
+        it depends on gtk4-layer-shell and wl-clipboard.
+      '';
+    };
 
     hotkey = lib.mkOption {
       type = lib.types.str;
@@ -77,9 +88,20 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ voxyPkg ];
+    assertions = [
+      {
+        assertion = cfg.displayServer == "wayland" || cfg.displayServer == "x11";
+        message = "services.voxy.displayServer must be \"wayland\" or \"x11\".";
+      }
+    ];
 
-    systemd.user.services.voxy = {
+    environment.systemPackages = [
+      (if cfg.displayServer == "x11" then voxyPkgs.x11 else voxyPkgs.default)
+    ];
+
+    systemd.user.services.voxy = let
+      pkg = if cfg.displayServer == "x11" then voxyPkgs.x11 else voxyPkgs.default;
+    in {
       description = "voxy — local offline voice dictation for Linux";
       wantedBy = [ "graphical-session.target" ];
       partOf   = [ "graphical-session.target" ];
@@ -89,7 +111,7 @@ in
       };
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${voxyPkg}/bin/voxy";
+        ExecStart = "${pkg}/bin/voxy";
         Restart = "on-failure";
       };
     };
