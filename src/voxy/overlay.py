@@ -57,18 +57,24 @@ class OverlayUI:
             )
             self._label.pack(expand=True)
 
+    def disable_corner(self) -> None:
+        """Suppress the corner indicator while keeping the Tk root alive for the event loop."""
+        if self._label is not None:
+            self._label.pack_forget()
+        self._label = None
+
     def show(self) -> None:
-        if not self._root:
+        if not self._root or not self._label:
             return
         self._queue.put("show")
 
     def processing(self) -> None:
-        if not self._root:
+        if not self._root or not self._label:
             return
         self._queue.put("processing")
 
     def hide(self) -> None:
-        if not self._root:
+        if not self._root or not self._label:
             return
         self._queue.put("hide")
 

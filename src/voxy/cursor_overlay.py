@@ -100,6 +100,7 @@ class _X11CursorOverlay:
         self._outline_canvas: Any = None
         self._rect: Any = None
         self._rect_canvas: Any = None
+        self._shape_dirty = True
 
         self._build_windows()
         self._load_shape("default")
@@ -228,7 +229,6 @@ class _X11CursorOverlay:
     def show(self) -> None:
         self._queue.put(("state", "recording"))
         self._queue.put(("show", None))
-        self._start_listener()
 
     def processing(self) -> None:
         self._queue.put(("state", "processing"))
@@ -274,6 +274,59 @@ class _X11CursorOverlay:
             pass
         self._listener = None
 
+    def _apply_outline_shape(self, log_w: int, log_h: int) -> None:
+        """Use X11 SHAPE extension to cut the outline window to only its opaque pixels."""
+        if not self._shape_dirty or log_w <= 0 or log_h <= 0:
+            return
+        self._shape_dirty = False
+        try:
+            from Xlib import display as xdisplay
+            from Xlib.ext import shape as xshape
+        except ImportError:
+            return
+        try:
+            surf = self._cursor_outlines.get(self._state)
+            dpy = xdisplay.Display()
+            xwin = dpy.create_resource_object('window', int(self._outline_win.winfo_id()))
+
+            pm = dpy.screen().root.create_pixmap(log_w, log_h, depth=1)
+            gc = pm.create_gc(foreground=0, background=0)
+            pm.fill_rectangle(gc, 0, 0, log_w, log_h)
+            gc.change(foreground=1)
+
+            if surf is not None:
+                raw = bytes(surf.get_data())
+                pw = surf.get_width()
+                ph = surf.get_height()
+                sc = self._scale
+                for ly in range(log_h):
+                    rx0 = None
+                    for lx in range(log_w):
+                        a = raw[(min(ly * sc, ph - 1) * pw + min(lx * sc, pw - 1)) * 4 + 3]
+                        if a > 10:
+                            if rx0 is None:
+                                rx0 = lx
+                        elif rx0 is not None:
+                            pm.fill_rectangle(gc, rx0, ly, lx - rx0, 1)
+                            rx0 = None
+                    if rx0 is not None:
+                        pm.fill_rectangle(gc, rx0, ly, log_w - rx0, 1)
+            else:
+                sw = max(2, int(_ARROW_STROKE))
+                sz = min(log_w, log_h)
+                pm.fill_rectangle(gc, 0, 0, sz, sw)
+                pm.fill_rectangle(gc, 0, sz - sw, sz, sw)
+                pm.fill_rectangle(gc, 0, 0, sw, sz)
+                pm.fill_rectangle(gc, sz - sw, 0, sw, sz)
+
+            xwin.shape_combine_mask(xshape.SO_Set, xshape.SK_Bounding, 0, 0, pm)
+            dpy.sync()
+            pm.free()
+            gc.free()
+            dpy.close()
+        except Exception as exc:
+            _log.debug("voxy: _apply_outline_shape: %s", exc)
+
     def _poll(self) -> None:
         pending_move: tuple[int, int] | None = None
         try:
@@ -284,6 +337,7 @@ class _X11CursorOverlay:
                 elif cmd == "show":
                     self._visible = True
                     self._show_internal()
+                    self._start_listener()
                 elif cmd == "hide":
                     self._visible = False
                     self._hide_internal()
@@ -332,6 +386,7 @@ class _X11CursorOverlay:
         canvas = self._outline_canvas
         if canvas is None:
             return
+        self._shape_dirty = True
         try:
             canvas.delete("outline")
         except self._tk.TclError:
@@ -434,6 +489,8 @@ class _X11CursorOverlay:
                 self._rect.geometry(f"{_RECT_W}x{_RECT_H}+{rx}+{ry}")
             except self._tk.TclError:
                 pass
+
+        self._apply_outline_shape(log_w, log_h)
 
 
 # ---------------------------------------------------------------------------
