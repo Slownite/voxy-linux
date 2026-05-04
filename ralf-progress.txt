@@ -4,3 +4,9 @@ date: 2026-05-01
 status: done
 summary: Core device/compute resolution (_resolve_device_and_compute using ctranslate2.get_supported_compute_types) was already implemented in PR #31 (issue #27). Added info-level logging for CPU paths at init so startup device/compute_type is visible regardless of hardware — GPU paths already logged. Added test verifying the info log fires on Transcriber init. 7 tests pass, 2 GPU tests auto-skip (no CUDA). mypy --strict clean.
 ---
+---
+issue: #37 real-time cursor shape outline + event-driven tracking on X11
+date: 2026-05-04
+status: done
+summary: Replaced 4-strip _X11CursorOverlay with single transparent Toplevel canvas rendering the active xcursor shape via cairo+PhotoImage. Added _load_shape() (mirrors Wayland backend), _start_xfixes_watcher() (XFixes CursorNotify thread, silent no-op if absent), HiDPI scale from winfo_fpixels, and graceful square fallback. Added python-xlib+pycairo to pyproject.toml x11 extra and flake.nix x11PythonDeps for parity. 10 tests pass, 0 new mypy/ruff errors. Merged as PR #40.
+---
