@@ -28,6 +28,7 @@
             sounddevice
             evdev
             numpy
+            pynput
             mypy
             pytest
             ruff
@@ -43,7 +44,7 @@
         waylandSystemDeps = with pkgs; [ wl-clipboard ydotool gtk4 gtk4-layer-shell ];
 
         # X11-specific deps (mirrors pyproject x11 extra).
-        x11PythonDeps = ps: with ps; [ pynput tkinter python-xlib pycairo ];
+        x11PythonDeps = ps: with ps; [ tkinter xlib pycairo ];
         x11SystemDeps = with pkgs; [ xclip xdotool xprop ];
 
         mkVoxy = pythonInterp: extraPythonDeps: extraSystemDeps:
