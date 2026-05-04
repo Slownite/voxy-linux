@@ -81,7 +81,6 @@ class _X11CursorOverlay:
         self._visible = False
         self._state = "recording"
         self._last_pos = (0, 0)
-        self._last_apply = 0.0
 
         self._cursor_size = int(os.environ.get("XCURSOR_SIZE", "24"))
         try:
@@ -101,11 +100,14 @@ class _X11CursorOverlay:
         self._rect: Any = None
         self._rect_canvas: Any = None
         self._shape_dirty = True
+        self._outline_log_size: tuple[int, int] = (0, 0)
+        self._screen_w: int = 0
+        self._screen_h: int = 0
 
         self._build_windows()
         self._load_shape("default")
         self._start_xfixes_watcher()
-        self._root.after(16, self._poll)
+        self._root.after(8, self._poll)
 
     def _build_windows(self) -> None:
         tk = self._tk
@@ -354,16 +356,11 @@ class _X11CursorOverlay:
             return
 
         if pending_move is not None and self._visible:
-            now = time.monotonic()
-            if now - self._last_apply >= 1 / 60:
-                self._last_pos = pending_move
-                self._reposition()
-                self._last_apply = now
-            else:
-                self._queue.put(("move", pending_move))
+            self._last_pos = pending_move
+            self._reposition()
 
         try:
-            self._root.after(16, self._poll)
+            self._root.after(8, self._poll)
         except self._tk.TclError:
             return
 
@@ -471,19 +468,22 @@ class _X11CursorOverlay:
 
         if self._outline_win and self._outline_canvas:
             try:
-                self._outline_canvas.config(width=log_w, height=log_h)
+                if (log_w, log_h) != self._outline_log_size:
+                    self._outline_canvas.config(width=log_w, height=log_h)
+                    self._outline_log_size = (log_w, log_h)
                 self._outline_win.geometry(f"{log_w}x{log_h}+{wx}+{wy}")
             except self._tk.TclError:
                 pass
 
         if self._rect:
-            sw = self._root.winfo_screenwidth()
-            sh = self._root.winfo_screenheight()
+            if not self._screen_w:
+                self._screen_w = self._root.winfo_screenwidth()
+                self._screen_h = self._root.winfo_screenheight()
             rx = x + _RECT_OFFSET
             ry = y + _RECT_OFFSET
-            if rx + _RECT_W > sw:
+            if rx + _RECT_W > self._screen_w:
                 rx = x - _RECT_OFFSET - _RECT_W
-            if ry + _RECT_H > sh:
+            if ry + _RECT_H > self._screen_h:
                 ry = y - _RECT_OFFSET - _RECT_H
             try:
                 self._rect.geometry(f"{_RECT_W}x{_RECT_H}+{rx}+{ry}")

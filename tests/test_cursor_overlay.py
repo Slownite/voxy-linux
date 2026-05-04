@@ -61,7 +61,6 @@ def _patched_init(self: object, root: MagicMock, tk_mod: MagicMock) -> None:
     self._visible = False  # type: ignore[attr-defined]
     self._state = "recording"  # type: ignore[attr-defined]
     self._last_pos = (0, 0)  # type: ignore[attr-defined]
-    self._last_apply = 0.0  # type: ignore[attr-defined]
     self._strips: list = []  # type: ignore[attr-defined]
     self._rect = MagicMock()  # type: ignore[attr-defined]
     self._rect_canvas = MagicMock()  # type: ignore[attr-defined]
@@ -73,6 +72,10 @@ def _patched_init(self: object, root: MagicMock, tk_mod: MagicMock) -> None:
     self._shape_cache: dict = {}  # type: ignore[attr-defined]
     self._outline_win = MagicMock()  # type: ignore[attr-defined]
     self._outline_canvas = MagicMock()  # type: ignore[attr-defined]
+    self._outline_log_size: tuple = (0, 0)  # type: ignore[attr-defined]
+    self._screen_w: int = 0  # type: ignore[attr-defined]
+    self._screen_h: int = 0  # type: ignore[attr-defined]
+    self._shape_dirty = False  # type: ignore[attr-defined]
     # No after() scheduling — tests drive _poll() manually.
 
 
@@ -226,7 +229,6 @@ def test_x11_pynput_move_updates_position() -> None:
     """on_move callback puts (move, (x,y)) on queue; _poll updates _last_pos."""
     overlay = _make_x11_overlay()
     overlay._visible = True  # type: ignore[attr-defined]
-    overlay._last_apply = 0.0  # type: ignore[attr-defined]
 
     # Simulate pynput on_move directly.
     overlay._queue.put(("move", (100, 200)))  # type: ignore[attr-defined]
