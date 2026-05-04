@@ -17,7 +17,6 @@ dependencies = [
     "faster-whisper",
     "sounddevice",
     "evdev; sys_platform == 'linux'",
-    "pynput",
     "numpy",
     "dbus-next",
 ]
@@ -33,9 +32,9 @@ voxy = ["*.wav", "icons/*.svg"]
 
 [project.optional-dependencies]
 dev = ["pytest", "mypy", "ruff"]
-# Wayland (Hyprland) cursor overlay — needs system gtk4 + gtk4-layer-shell
-# packages too (see presetup-arch.sh).
-cursor-overlay = ["pygobject", "pycairo"]
+# Needs system gtk4 + gtk4-layer-shell packages (see presetup-arch.sh).
+wayland = ["pygobject", "pycairo"]
+x11 = ["pynput"]
 
 # mypy config lives in mypy.ini (TOML overrides not supported in this mypy version)
 
