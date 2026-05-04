@@ -22,7 +22,7 @@
         cudaPy = cudaPkgs.python313;
 
         # Packages available under python3Packages.<name>
-        # faster-whisper uses quoted attr due to hyphen in name.
+        # Quoted attrs are required for names containing hyphens.
         pythonDeps = ps:
           (with ps; [
             sounddevice
@@ -37,7 +37,12 @@
             build
             twine
           ])
-          ++ [ ps."faster-whisper" ];
+          ++ [ ps."faster-whisper" ps."dbus-next" ];
+
+        # Optional deps for the Wayland cursor-overlay feature (pyproject: cursor-overlay extra).
+        # Requires system gtk4 + gtk4-layer-shell packages.
+        cursorOverlayPythonDeps = ps: with ps; [ pygobject3 pycairo ];
+        cursorOverlaySystemDeps = with pkgs; [ gtk4 gtk4-layer-shell ];
 
         # System-level CLI tools for text insertion and window detection
         systemDeps = with pkgs; [
@@ -78,6 +83,17 @@
 
           shellHook = ''
             echo "voxy cuda dev — $(python --version)"
+          '';
+        };
+
+        devShells.cursor-overlay = pkgs.mkShell {
+          packages =
+            [ (py.withPackages (ps: pythonDeps ps ++ cursorOverlayPythonDeps ps)) ]
+            ++ systemDeps
+            ++ cursorOverlaySystemDeps;
+
+          shellHook = ''
+            echo "voxy cursor-overlay dev — $(python --version)"
           '';
         };
       }

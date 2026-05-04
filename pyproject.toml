@@ -17,7 +17,6 @@ dependencies = [
     "faster-whisper",
     "sounddevice",
     "evdev; sys_platform == 'linux'",
-    "pynput",
     "numpy",
     "dbus-next",
 ]
