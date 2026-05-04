@@ -21,14 +21,12 @@
         };
         cudaPy = cudaPkgs.python313;
 
-        # Packages available under python3Packages.<name>
+        # Display-server-agnostic Python deps.
         # Quoted attrs are required for names containing hyphens.
-        pythonDeps = ps:
+        corePythonDeps = ps:
           (with ps; [
             sounddevice
             evdev
-            pynput
-            tkinter
             numpy
             mypy
             pytest
@@ -39,61 +37,61 @@
           ])
           ++ [ ps."faster-whisper" ps."dbus-next" ];
 
-        # Optional deps for the Wayland cursor-overlay feature (pyproject: cursor-overlay extra).
-        # Requires system gtk4 + gtk4-layer-shell packages.
-        cursorOverlayPythonDeps = ps: with ps; [ pygobject3 pycairo ];
-        cursorOverlaySystemDeps = with pkgs; [ gtk4 gtk4-layer-shell ];
+        # Wayland-specific deps (mirrors pyproject wayland extra).
+        # Requires system gtk4 + gtk4-layer-shell.
+        waylandPythonDeps = ps: with ps; [ pygobject3 pycairo ];
+        waylandSystemDeps = with pkgs; [ wl-clipboard ydotool gtk4 gtk4-layer-shell ];
 
-        # System-level CLI tools for text insertion and window detection
-        systemDeps = with pkgs; [
-          xclip
-          xdotool
-          xprop
-          wl-clipboard
-          ydotool
-        ];
+        # X11-specific deps (mirrors pyproject x11 extra).
+        x11PythonDeps = ps: with ps; [ pynput tkinter ];
+        x11SystemDeps = with pkgs; [ xclip xdotool xprop ];
 
-        voxy = py.pkgs.buildPythonApplication {
-          pname = "voxy-linux";
-          version = "0.1.0";
-          src = ./.;
-          format = "pyproject";
+        mkVoxy = pythonInterp: extraPythonDeps: extraSystemDeps:
+          pythonInterp.pkgs.buildPythonApplication {
+            pname = "voxy-linux";
+            version = "0.1.0";
+            src = ./.;
+            format = "pyproject";
 
-          nativeBuildInputs = with py.pkgs; [ setuptools ];
-          propagatedBuildInputs = (pythonDeps py.pkgs) ++ systemDeps;
-        };
+            nativeBuildInputs = with pythonInterp.pkgs; [ setuptools ];
+            propagatedBuildInputs =
+              (corePythonDeps pythonInterp.pkgs)
+              ++ (extraPythonDeps pythonInterp.pkgs)
+              ++ extraSystemDeps;
+          };
+
       in
       {
-        packages.default = voxy;
+        packages.default = mkVoxy py waylandPythonDeps waylandSystemDeps;
+        packages.x11 = mkVoxy py x11PythonDeps x11SystemDeps;
 
         devShells.default = pkgs.mkShell {
           packages =
-            [ (py.withPackages pythonDeps) ]
-            ++ systemDeps;
+            [ (py.withPackages (ps: corePythonDeps ps ++ waylandPythonDeps ps)) ]
+            ++ waylandSystemDeps;
 
           shellHook = ''
-            echo "voxy dev — $(python --version)"
+            echo "voxy wayland dev — $(python --version)"
+          '';
+        };
+
+        devShells.x11 = pkgs.mkShell {
+          packages =
+            [ (py.withPackages (ps: corePythonDeps ps ++ x11PythonDeps ps)) ]
+            ++ x11SystemDeps;
+
+          shellHook = ''
+            echo "voxy x11 dev — $(python --version)"
           '';
         };
 
         devShells.cuda = cudaPkgs.mkShell {
           packages =
-            [ (cudaPy.withPackages pythonDeps) ]
-            ++ systemDeps;
+            [ (cudaPy.withPackages (ps: corePythonDeps ps ++ waylandPythonDeps ps)) ]
+            ++ waylandSystemDeps;
 
           shellHook = ''
             echo "voxy cuda dev — $(python --version)"
-          '';
-        };
-
-        devShells.cursor-overlay = pkgs.mkShell {
-          packages =
-            [ (py.withPackages (ps: pythonDeps ps ++ cursorOverlayPythonDeps ps)) ]
-            ++ systemDeps
-            ++ cursorOverlaySystemDeps;
-
-          shellHook = ''
-            echo "voxy cursor-overlay dev — $(python --version)"
           '';
         };
       }
