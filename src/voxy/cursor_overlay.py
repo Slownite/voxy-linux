@@ -327,6 +327,8 @@ class _X11CursorOverlay:
             gc.free()
             dpy.close()
         except Exception as exc:
+            import sys  # noqa: PLC0415
+            print(f"voxy: SHAPE mask failed: {exc}", file=sys.stderr)
             _log.warning("voxy: _apply_outline_shape: %s", exc)
 
     def _poll(self) -> None:
@@ -350,6 +352,7 @@ class _X11CursorOverlay:
                     self._load_shape(payload)
                     if self._visible:
                         self._redraw_outline()
+                        self._reposition()
         except queue.Empty:
             pass
         except self._tk.TclError:
