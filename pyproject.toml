@@ -18,6 +18,7 @@ dependencies = [
     "sounddevice",
     "evdev; sys_platform == 'linux'",
     "numpy",
+    "pynput; sys_platform == 'linux'",
     "dbus-next",
 ]
 
@@ -34,7 +35,7 @@ voxy = ["*.wav", "icons/*.svg"]
 dev = ["pytest", "mypy", "ruff"]
 # Needs system gtk4 + gtk4-layer-shell packages (see presetup-arch.sh).
 wayland = ["pygobject", "pycairo"]
-x11 = ["pynput", "python-xlib", "pycairo"]
+x11 = ["python-xlib", "pycairo"]
 
 # mypy config lives in mypy.ini (TOML overrides not supported in this mypy version)
 
