@@ -64,8 +64,10 @@ class _NullCursorOverlay:
 class _X11CursorOverlay:
     """Tk-based cursor overlay for X11 / XWayland.
 
-    4 thin Toplevel strips form a square contour around the cursor.
-    5th Toplevel is a canvas-drawn status rect (stroke + text, no fill).
+    One transparent Toplevel canvas draws the xcursor outline anchored at the
+    cursor hotspot.  A second Toplevel shows the status rect (unchanged).
+    Shape changes are detected via XFixes CursorNotify events; falls back
+    gracefully to no shape tracking if python-xlib / XFixes is absent.
     pynput mouse.Listener feeds (x, y) into a queue drained by Tk after().
     Throttled to ~60 Hz to avoid flooding X11 with ConfigureWindow calls.
     """
@@ -80,26 +82,53 @@ class _X11CursorOverlay:
         self._state = "recording"
         self._last_pos = (0, 0)
         self._last_apply = 0.0
-        self._strips: list[Any] = []
+
+        self._cursor_size = int(os.environ.get("XCURSOR_SIZE", "24"))
+        try:
+            self._scale = max(1, round(root.winfo_fpixels("1i") / 72))
+        except Exception:
+            self._scale = 1
+        self._cursor_shape = "default"
+        self._cursor_outlines: dict[str, Any] = {}
+        self._cursor_hot: tuple[float, float] = (0.0, 0.0)
+        self._shape_cache: dict[
+            tuple[str, int], tuple[dict[str, Any], tuple[float, float]]
+        ] = {}
+        self._outline_photo: Any = None  # held to prevent GC of PhotoImage
+
+        self._outline_win: Any = None
+        self._outline_canvas: Any = None
         self._rect: Any = None
         self._rect_canvas: Any = None
+
         self._build_windows()
+        self._load_shape("default")
+        self._start_xfixes_watcher()
         self._root.after(16, self._poll)
 
     def _build_windows(self) -> None:
         tk = self._tk
-        for _ in range(4):
-            w = tk.Toplevel(self._root)
-            w.withdraw()
-            try:
-                w.overrideredirect(True)
-                w.attributes("-topmost", True)
-            except self._tk.TclError:
-                pass
-            w.configure(bg=_COLOR_RECORDING)
-            self._strips.append(w)
-
         _TRANSPARENT = "#010101"
+
+        outline_win = tk.Toplevel(self._root)
+        outline_win.withdraw()
+        try:
+            outline_win.overrideredirect(True)
+            outline_win.attributes("-topmost", True)
+            outline_win.attributes("-transparentcolor", _TRANSPARENT)
+        except self._tk.TclError:
+            pass
+        outline_win.configure(bg=_TRANSPARENT)
+        outline_canvas = tk.Canvas(
+            outline_win,
+            width=40, height=40,
+            bg=_TRANSPARENT,
+            highlightthickness=0, bd=0,
+        )
+        outline_canvas.pack()
+        self._outline_win = outline_win
+        self._outline_canvas = outline_canvas
+
         rect = tk.Toplevel(self._root)
         rect.withdraw()
         try:
@@ -111,11 +140,9 @@ class _X11CursorOverlay:
         rect.configure(bg=_TRANSPARENT)
         canvas = tk.Canvas(
             rect,
-            width=_RECT_W,
-            height=_RECT_H,
+            width=_RECT_W, height=_RECT_H,
             bg=_TRANSPARENT,
-            highlightthickness=0,
-            bd=0,
+            highlightthickness=0, bd=0,
         )
         canvas.pack()
         canvas.create_rectangle(
@@ -132,6 +159,71 @@ class _X11CursorOverlay:
         )
         self._rect = rect
         self._rect_canvas = canvas
+
+    def _load_shape(self, shape_name: str) -> None:
+        """Build and cache xcursor outline surfaces for shape_name (both states)."""
+        scale = self._scale
+        key = (shape_name, scale)
+        outlines: dict[str, Any] = {}
+        hot: tuple[float, float] = (0.0, 0.0)
+        if key in self._shape_cache:
+            outlines, hot = self._shape_cache[key]
+        else:
+            path = _find_xcursor_file(shape_name)
+            if path is None and shape_name != "default":
+                path = _find_xcursor_file("default")
+            if path is None:
+                return
+            for state, rgb in (
+                ("recording", _COLOR_RECORDING_RGB),
+                ("processing", _COLOR_PROCESSING_RGB),
+            ):
+                try:
+                    result = _build_cursor_outline(path, self._cursor_size, rgb, scale=scale)
+                except ImportError:
+                    result = None
+                if result is not None:
+                    surf, xhot, yhot = result
+                    outlines[state] = surf
+                    hot = (xhot, yhot)
+            self._shape_cache[key] = (outlines, hot)
+        self._cursor_hot = hot
+        self._cursor_outlines = outlines
+        self._cursor_shape = shape_name
+
+    def _start_xfixes_watcher(self) -> None:
+        """Start XFixes CursorNotify event thread; silent no-op if unavailable."""
+        try:
+            from Xlib import display as xdisplay
+            from Xlib.ext import xfixes
+        except ImportError:
+            return
+        try:
+            dpy = xdisplay.Display()
+            root = dpy.screen().root
+            dpy.xfixes_select_cursor_input(root, xfixes.XFixesDisplayCursorNotifyMask)
+            dpy.flush()
+            event_base = dpy.xfixes_event_base
+        except Exception as exc:
+            _log.debug("voxy: XFixes unavailable (%s) — cursor shape tracking disabled", exc)
+            return
+
+        q = self._queue
+
+        def _watch() -> None:
+            while True:
+                try:
+                    ev = dpy.next_event()
+                    if ev.type == event_base + xfixes.XFixesCursorNotify:
+                        name = dpy.get_atom_name(ev.cursor_name)
+                        if name:
+                            q.put(("shape", name))
+                except Exception as exc:
+                    _log.debug("voxy: XFixes watcher stopped (%s)", exc)
+                    break
+
+        t = threading.Thread(target=_watch, daemon=True)
+        t.start()
 
     def show(self) -> None:
         self._queue.put(("state", "recording"))
@@ -198,6 +290,10 @@ class _X11CursorOverlay:
                 elif cmd == "state":
                     self._state = payload
                     self._apply_state()
+                elif cmd == "shape":
+                    self._load_shape(payload)
+                    if self._visible:
+                        self._redraw_outline()
         except queue.Empty:
             pass
         except self._tk.TclError:
@@ -219,23 +315,66 @@ class _X11CursorOverlay:
 
     def _apply_state(self) -> None:
         color = _COLOR_RECORDING if self._state == "recording" else _COLOR_PROCESSING
-        for s in self._strips:
-            try:
-                s.configure(bg=color)
-            except self._tk.TclError:
-                pass
         if self._rect_canvas:
             try:
                 self._rect_canvas.itemconfigure("border", outline=color)
                 self._rect_canvas.itemconfigure("label", fill=color, text=_LABELS[self._state])
             except self._tk.TclError:
                 pass
+        if self._visible:
+            self._redraw_outline()
+
+    def _redraw_outline(self) -> None:
+        """Paint current state's xcursor surface (or fallback square) on canvas."""
+        import base64  # noqa: PLC0415
+        import io  # noqa: PLC0415
+
+        canvas = self._outline_canvas
+        if canvas is None:
+            return
+        try:
+            canvas.delete("outline")
+        except self._tk.TclError:
+            return
+
+        surf = self._cursor_outlines.get(self._state)
+        if surf is not None:
+            buf = io.BytesIO()
+            try:
+                surf.write_to_png(buf)
+            except Exception:
+                surf = None
+            else:
+                photo = self._tk.PhotoImage(
+                    data=base64.b64encode(buf.getvalue()).decode()
+                )
+                if self._scale > 1:
+                    photo = photo.subsample(self._scale, self._scale)
+                self._outline_photo = photo  # prevent GC
+                try:
+                    canvas.create_image(0, 0, anchor="nw", image=photo, tags="outline")
+                except self._tk.TclError:
+                    pass
+                return
+
+        # Fallback: draw a plain square on the canvas.
+        _SZ = 40
+        color = _COLOR_RECORDING if self._state == "recording" else _COLOR_PROCESSING
+        try:
+            canvas.config(width=_SZ, height=_SZ)
+            canvas.create_rectangle(
+                2, 2, _SZ - 2, _SZ - 2,
+                outline=color, fill="#010101", width=2, tags="outline",
+            )
+        except self._tk.TclError:
+            pass
 
     def _show_internal(self) -> None:
         self._apply_state()
-        for s in self._strips:
+        self._redraw_outline()
+        if self._outline_win:
             try:
-                s.deiconify()
+                self._outline_win.deiconify()
             except self._tk.TclError:
                 pass
         if self._rect:
@@ -246,9 +385,9 @@ class _X11CursorOverlay:
         self._reposition()
 
     def _hide_internal(self) -> None:
-        for s in self._strips:
+        if self._outline_win:
             try:
-                s.withdraw()
+                self._outline_win.withdraw()
             except self._tk.TclError:
                 pass
         if self._rect:
@@ -259,17 +398,26 @@ class _X11CursorOverlay:
 
     def _reposition(self) -> None:
         x, y = self._last_pos
-        _SZ, _SW = 40, 2  # X11 square frame size / stroke width
-        half = _SZ // 2
-        layouts = [
-            (_SZ, _SW, x - half, y - half),
-            (_SZ, _SW, x - half, y + half - _SW),
-            (_SW, _SZ, x - half, y - half),
-            (_SW, _SZ, x + half - _SW, y - half),
-        ]
-        for strip, (w, h, sx, sy) in zip(self._strips, layouts, strict=True):
+        xhot, yhot = self._cursor_hot
+        surf = self._cursor_outlines.get(self._state)
+
+        if surf is not None:
+            phys_w = surf.get_width()
+            phys_h = surf.get_height()
+            log_w = max(1, phys_w // self._scale)
+            log_h = max(1, phys_h // self._scale)
+            wx = x - int(xhot)
+            wy = y - int(yhot)
+        else:
+            _SZ = 40
+            log_w, log_h = _SZ, _SZ
+            wx = x - _SZ // 2
+            wy = y - _SZ // 2
+
+        if self._outline_win and self._outline_canvas:
             try:
-                strip.geometry(f"{w}x{h}+{sx}+{sy}")
+                self._outline_canvas.config(width=log_w, height=log_h)
+                self._outline_win.geometry(f"{log_w}x{log_h}+{wx}+{wy}")
             except self._tk.TclError:
                 pass
 
