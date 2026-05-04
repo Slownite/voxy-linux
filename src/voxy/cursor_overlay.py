@@ -319,13 +319,13 @@ class _X11CursorOverlay:
                 pm.fill_rectangle(gc, 0, 0, sw, sz)
                 pm.fill_rectangle(gc, sz - sw, 0, sw, sz)
 
-            xwin.shape_combine_mask(xshape.SO_Set, xshape.SK_Bounding, 0, 0, pm)
+            xwin.shape_mask(xshape.SO.Set, xshape.SK.Bounding, 0, 0, pm)
             dpy.sync()
             pm.free()
             gc.free()
             dpy.close()
         except Exception as exc:
-            _log.debug("voxy: _apply_outline_shape: %s", exc)
+            _log.warning("voxy: _apply_outline_shape: %s", exc)
 
     def _poll(self) -> None:
         pending_move: tuple[int, int] | None = None
