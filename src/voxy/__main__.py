@@ -23,15 +23,19 @@ if (
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import argparse
+import signal
 from pathlib import Path
 
 from voxy.app import App
 from voxy.audio import AudioRecorder, AudioFeedback
-from voxy.config import ConfigLoader, VALID_MODEL_SIZES
+from voxy.config import ConfigError, ConfigLoader, VALID_MODEL_SIZES
 from voxy.inserter import TextInserter
 from voxy.overlay import OverlayUI
 from voxy.postprocess import PostProcessor
 from voxy.transcriber import Transcriber
+
+_STATE_DIR: Path = Path.home() / ".local" / "state" / "voxy"
+_PID_FILE: Path = _STATE_DIR / "voxy.pid"
 
 _MODEL_MENU: list[tuple[str, str]] = [
     ("auto",       "detect best size for your CPU/GPU (default)"),
@@ -66,6 +70,15 @@ def _prompt_model() -> str:
         print(f"  Invalid: {raw!r}. Enter 1-{len(_MODEL_MENU)} or a model name.")
 
 
+def _write_pid() -> None:
+    _STATE_DIR.mkdir(parents=True, exist_ok=True)
+    _PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+
+
+def _remove_pid() -> None:
+    _PID_FILE.unlink(missing_ok=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="voxy",
@@ -81,6 +94,14 @@ def main() -> None:
         action="version",
         version="voxy 0.1.0",
     )
+    parser.add_argument(
+        "--set-model",
+        metavar="SIZE",
+        help=(
+            f"Hot-swap the Whisper model in a running voxy instance. "
+            f"Valid sizes: {', '.join(sorted(VALID_MODEL_SIZES))}"
+        ),
+    )
     args = parser.parse_args()
 
     if args.daemon:
@@ -95,6 +116,30 @@ def main() -> None:
         return
 
     loader = ConfigLoader()
+
+    if args.set_model:
+        size = args.set_model
+        if size not in VALID_MODEL_SIZES:
+            print(f"voxy: invalid model size {size!r}. Valid: {sorted(VALID_MODEL_SIZES)}")
+            sys.exit(1)
+        if not _PID_FILE.exists():
+            print("voxy: no running instance (PID file not found at ~/.local/state/voxy/voxy.pid)")
+            sys.exit(1)
+        pid = int(_PID_FILE.read_text(encoding="utf-8").strip())
+        try:
+            loader.set_model_size(size)
+        except ConfigError as e:
+            print(f"voxy: {e}")
+            sys.exit(1)
+        try:
+            os.kill(pid, signal.SIGUSR1)
+            print(f"voxy: model change to {size!r} sent to PID {pid} — takes effect when idle")
+        except ProcessLookupError:
+            print(f"voxy: PID {pid} not found (stale PID file?)")
+            _PID_FILE.unlink(missing_ok=True)
+            sys.exit(1)
+        return
+
     first_run = loader.is_first_run()
     if first_run:
         chosen = _prompt_model()
@@ -150,16 +195,32 @@ def main() -> None:
         AudioFeedback(config.ui),
         key=config.hotkey.key,
         cursor_overlay=cursor_ov,
+        config_loader=loader,
+        device_setting=config.model.device,
+        language_setting=config.model.language,
     )
 
     if config.ui.tray:
         try:
             from voxy.tray import TrayIcon
-            app.set_tray(TrayIcon(on_quit=app.stop))
+
+            def _on_model_change(size: str) -> None:
+                loader.set_model_size(size)
+                app.swap_model(size)
+
+            app.set_tray(TrayIcon(
+                on_quit=app.stop,
+                on_model_change=_on_model_change,
+                get_model=lambda: app._transcriber.model_size,
+            ))
         except ImportError as e:
             print(f"voxy: tray disabled — install dbus-next ({e})", flush=True)
 
-    app.run()
+    _write_pid()
+    try:
+        app.run()
+    finally:
+        _remove_pid()
 
 
 def _shorten_home(path: Path) -> str:
