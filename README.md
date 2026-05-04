@@ -203,7 +203,7 @@ for the design rationale.
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    voxy.url    = "github:Slownite/voxy-linux";
+    voxy.url    = "github:samanddima/voxy-linux";
   };
 
   outputs = { nixpkgs, voxy, ... }: {
@@ -262,7 +262,7 @@ services.voxy = {
 ### Setup
 
 ```bash
-git clone https://github.com/Slownite/voxy-linux
+git clone https://github.com/samanddima/voxy-linux
 cd voxy-linux
 just setup          # install deps + dev extras into .venv
 ```
