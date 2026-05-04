@@ -21,10 +21,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
-
-if TYPE_CHECKING:
-    import tkinter as tk
+from typing import Any, Callable, Protocol
 
 from .config import UIConfig
 
@@ -697,7 +694,8 @@ def _ensure_cursor_plugin(_sock_path: str) -> None:
 
     Silent no-op if the .so is missing or hyprctl is unavailable.
     """
-    import json, subprocess  # noqa: PLC0415
+    import json  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
     if not _PLUGIN_SO.exists():
         _log.debug("voxy: cursor-shape-emit.so not found at %s — shape events disabled", _PLUGIN_SO)
         return
@@ -925,7 +923,9 @@ class _WaylandCursorOverlay:
             from gi.repository import Gdk  # noqa: PLC0415
             display = Gdk.Display.get_default()
             mlist = display.get_monitors() if display else None
-            n = mlist.get_n_items() if mlist else 0
+            if mlist is None:
+                return
+            n = mlist.get_n_items()
             for i in range(n):
                 mon = mlist.get_item(i)
                 geo = mon.get_geometry()
@@ -985,7 +985,7 @@ class _WaylandCursorOverlay:
         out["area"] = area
 
 
-    def _make_draw(self, out: dict[str, Any]):  # type: ignore[return]
+    def _make_draw(self, out: dict[str, Any]) -> Callable[[Any, Any, int, int, Any], None]:
         """Return a draw function closed over this output's offset."""
         def _draw(_area: Any, cr: Any, w: int, h: int, _data: Any) -> None:
             import cairo  # noqa: PLC0415
@@ -1055,6 +1055,8 @@ class _WaylandCursorOverlay:
         with self._lock:
             scale = self._gdk_scale
             cache_key = (shape_name, scale)
+            outlines: dict[str, Any]
+            hot: tuple[float, float]
             if cache_key in self._shape_cache:
                 outlines, hot = self._shape_cache[cache_key]
             else:
@@ -1063,8 +1065,8 @@ class _WaylandCursorOverlay:
                     cursor_file = _find_xcursor_file("default")
                 if cursor_file is None:
                     return
-                outlines: dict[str, Any] = {}
-                hot: tuple[float, float] = (0.0, 0.0)
+                outlines = {}
+                hot = (0.0, 0.0)
                 for state, rgb in (
                     ("recording", _COLOR_RECORDING_RGB),
                     ("processing", _COLOR_PROCESSING_RGB),
