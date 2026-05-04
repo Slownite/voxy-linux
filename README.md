@@ -4,7 +4,7 @@
 
 Local, offline voice dictation for Linux — text appears instantly in whatever window is active. No cloud. No subscription. No audio ever leaves your machine.
 
-Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× faster than openai-whisper on CPU, same accuracy). Works on X11 and Wayland. Ships as a Nix flake.
+Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× faster than openai-whisper on CPU, same accuracy). Supports Wayland and X11 via optional display-server extras. Ships as a Nix flake.
 
 ---
 
@@ -13,13 +13,15 @@ Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× fa
 ### uvx (try without installing)
 
 ```bash
-uvx voxy-linux
+uvx --with "voxy-linux[wayland]" voxy-linux   # Wayland
+uvx --with "voxy-linux[x11]"     voxy-linux   # X11
 ```
 
 ### pipx (persistent isolated install)
 
 ```bash
-pipx install voxy-linux
+pipx install "voxy-linux[wayland]"   # Wayland
+pipx install "voxy-linux[x11]"       # X11
 ```
 
 ### AUR (Arch / Manjaro)
@@ -46,12 +48,12 @@ Before installing via `pip` / `pipx` / `uvx`, install the required system packag
 | Fedora | `sudo dnf install portaudio` |
 | Arch | `sudo pacman -S portaudio` |
 
-**Text insertion** (install the set that matches your display server)
+**Text insertion + cursor overlay** (install the set that matches your display server)
 
-| Display server | Packages |
-|---|---|
-| X11 | `xclip` + `xdotool` |
-| Wayland | `wl-clipboard` + `ydotool` |
+| Display server | System packages | Python extra |
+|---|---|---|
+| Wayland | `wl-clipboard` + `ydotool` + `gtk4` + `gtk4-layer-shell` | `[wayland]` |
+| X11 | `xclip` + `xdotool` | `[x11]` |
 
 > **macOS / Windows:** voxy is Linux-only. The package will install but will not run on other platforms.
 
@@ -105,7 +107,7 @@ the prompt and reuse the cached model.
 
 ```toml
 [hotkey]
-key = "right_alt"              # evdev/pynput key name
+key = "right_alt"              # evdev key name
 
 [model]
 size = "small"                 # tiny | base | small | medium | large-v3
@@ -203,6 +205,8 @@ On GPU, the compute type is selected automatically: `int8_float16` (Turing+), `f
 
 **`modelSize`** — `tiny` · `tiny.en` · `base` · `base.en` · `small` · `small.en` · `medium` · `medium.en` · `large-v1` · `large-v2` · `large-v3`
 
+**`hotkey`** — evdev key name (e.g. `right_alt`, `right_ctrl`, `f13`)
+
 **`overlayCorner`** — `top-left` · `top-right` · `bottom-left` · `bottom-right`
 
 ### Example with custom options
@@ -256,17 +260,20 @@ just deps                   # dependency counts
 ### Without just (manual)
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --extra wayland   # Wayland
+uv sync --extra dev --extra x11       # X11
 uv run python -m voxy
 uv run pytest
 uv run mypy --strict src/
 uv build
 ```
 
-### NixOS dev shell
+### Nix dev shells
 
 ```bash
-nix develop                              # enter shell with Python + all deps
+nix develop                              # Wayland shell (default)
+nix develop .#x11                        # X11 shell
+nix develop .#cuda                       # Wayland + CUDA shell
 nix develop --command pytest             # run tests
 nix develop --command mypy --strict src/ # type check
 ```
