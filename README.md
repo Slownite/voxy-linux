@@ -53,6 +53,14 @@ Before installing via `pip` / `pipx` / `uvx`, install the required system packag
 | X11 | `xclip` + `xdotool` |
 | Wayland | `wl-clipboard` + `ydotool` |
 
+**Cursor overlay** (optional, Hyprland only — see [Cursor overlay](#cursor-overlay))
+
+| Distro | Command |
+|---|---|
+| Arch | `sudo pacman -S gtk4 gtk4-layer-shell python-gobject python-cairo` |
+
+Then install voxy with the extra: `pipx install 'voxy-linux[cursor-overlay]'`.
+
 > **macOS / Windows:** voxy is Linux-only. The package will install but will not run on other platforms.
 
 ---
@@ -70,6 +78,10 @@ A small overlay appears in a configurable screen corner:
 - **REC** (red) — microphone is active
 - **PROCESSING** (amber) — transcribing
 - Overlay disappears once text is inserted
+
+On Hyprland, voxy can additionally draw a green frame and status pill
+**anchored to the mouse cursor** while the hotkey is held. See
+[Cursor overlay](#cursor-overlay).
 
 A tray icon (StatusNotifierItem — works in waybar, KDE, GNOME with the
 right extension) mirrors the same three states and offers a right-click
@@ -108,7 +120,7 @@ the prompt and reuse the cached model.
 key = "right_alt"              # evdev/pynput key name
 
 [model]
-size = "small"                 # tiny | base | small | medium | large-v3
+size = "auto"                  # auto | tiny | base | small | medium | large-v3
 language = "auto"              # auto-detect per utterance, or a BCP-47 code
 fallback_language = "en"
 
@@ -131,6 +143,9 @@ fillers = ["uh", "um", "hmm"]
 overlay = true
 overlay_corner = "bottom-right"    # top-left | top-right | bottom-left | bottom-right
 audio_feedback = false
+notify = true                      # toast notification on each transcript
+tray = true                        # StatusNotifierItem tray icon
+cursor_overlay = true              # green frame around cursor (Hyprland only)
 
 [logging]
 level = "info"
@@ -148,6 +163,28 @@ device = "auto"   # auto (default) | cpu | cuda
 - `cpu` — always uses CPU regardless of available hardware
 
 On GPU, the compute type is selected automatically: `int8_float16` (Turing+), `float16` (Pascal+), or `float32` fallback. The selected device and compute type are logged at startup.
+
+---
+
+## Cursor overlay
+
+When enabled (`[ui] cursor_overlay = true`), voxy draws a green frame
+around the mouse cursor plus a small status rectangle to its
+bottom-right while the push-to-talk key is held and during
+transcription. The corner overlay is suppressed on Wayland when the
+cursor overlay is active.
+
+- **Hyprland (Wayland):** GTK4 + `gtk4-layer-shell` layer surface; cursor
+  position streamed over the Hyprland IPC socket. Requires the
+  `cursor-overlay` extra (`pygobject` + `pycairo`) and the system
+  packages listed in [Prerequisites](#prerequisites).
+- **X11:** Tk override-redirect strips with XShape click-through;
+  pointer position via `pynput`.
+- **Other Wayland compositors** (Sway, KDE, GNOME): no-op; falls back to
+  the corner overlay.
+
+See [docs/adr/0001-cursor-overlay.md](docs/adr/0001-cursor-overlay.md)
+for the design rationale.
 
 ---
 
