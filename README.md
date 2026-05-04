@@ -55,6 +55,14 @@ Before installing via `pip` / `pipx` / `uvx`, install the required system packag
 | Wayland | `wl-clipboard` + `ydotool` + `gtk4` + `gtk4-layer-shell` | `[wayland]` |
 | X11 | `xclip` + `xdotool` | `[x11]` |
 
+**Cursor overlay** (optional, Hyprland only — see [Cursor overlay](#cursor-overlay))
+
+| Distro | Command |
+|---|---|
+| Arch | `sudo pacman -S gtk4 gtk4-layer-shell python-gobject python-cairo` |
+
+Then install voxy with the extra: `pipx install 'voxy-linux[cursor-overlay]'`.
+
 > **macOS / Windows:** voxy is Linux-only. The package will install but will not run on other platforms.
 
 ---
@@ -72,6 +80,10 @@ A small overlay appears in a configurable screen corner:
 - **REC** (red) — microphone is active
 - **PROCESSING** (amber) — transcribing
 - Overlay disappears once text is inserted
+
+On Hyprland, voxy can additionally draw a green frame and status pill
+**anchored to the mouse cursor** while the hotkey is held. See
+[Cursor overlay](#cursor-overlay).
 
 A tray icon (StatusNotifierItem — works in waybar, KDE, GNOME with the
 right extension) mirrors the same three states and offers a right-click
@@ -110,7 +122,7 @@ the prompt and reuse the cached model.
 key = "right_alt"              # evdev key name
 
 [model]
-size = "small"                 # tiny | base | small | medium | large-v3
+size = "auto"                  # auto | tiny | base | small | medium | large-v3
 language = "auto"              # auto-detect per utterance, or a BCP-47 code
 fallback_language = "en"
 
@@ -133,6 +145,9 @@ fillers = ["uh", "um", "hmm"]
 overlay = true
 overlay_corner = "bottom-right"    # top-left | top-right | bottom-left | bottom-right
 audio_feedback = false
+notify = true                      # toast notification on each transcript
+tray = true                        # StatusNotifierItem tray icon
+cursor_overlay = true              # green frame around cursor (Hyprland only)
 
 [logging]
 level = "info"
@@ -153,6 +168,28 @@ On GPU, the compute type is selected automatically: `int8_float16` (Turing+), `f
 
 ---
 
+## Cursor overlay
+
+When enabled (`[ui] cursor_overlay = true`), voxy draws a green frame
+around the mouse cursor plus a small status rectangle to its
+bottom-right while the push-to-talk key is held and during
+transcription. The corner overlay is suppressed on Wayland when the
+cursor overlay is active.
+
+- **Hyprland (Wayland):** GTK4 + `gtk4-layer-shell` layer surface; cursor
+  position streamed over the Hyprland IPC socket. Requires the
+  `cursor-overlay` extra (`pygobject` + `pycairo`) and the system
+  packages listed in [Prerequisites](#prerequisites).
+- **X11:** Tk override-redirect strips with XShape click-through;
+  pointer position via `pynput`.
+- **Other Wayland compositors** (Sway, KDE, GNOME): no-op; falls back to
+  the corner overlay.
+
+See [docs/adr/0001-cursor-overlay.md](docs/adr/0001-cursor-overlay.md)
+for the design rationale.
+
+---
+
 **Terminal paste:** when a terminal emulator is the active window (alacritty, kitty, ghostty, gnome-terminal, konsole), voxy automatically uses Ctrl+Shift+V instead of Ctrl+V. No configuration needed.
 
 **Config path override:** set `VOXY_CONFIG=/path/to/config.toml` to point voxy at a specific file. This takes priority over `~/.config/voxy/config.toml`.
@@ -168,7 +205,7 @@ On GPU, the compute type is selected automatically: `int8_float16` (Turing+), `f
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    voxy.url    = "github:Slownite/voxy-linux";
+    voxy.url    = "github:samanddima/voxy-linux";
   };
 
   outputs = { nixpkgs, voxy, ... }: {
@@ -229,7 +266,7 @@ services.voxy = {
 ### Setup
 
 ```bash
-git clone https://github.com/Slownite/voxy-linux
+git clone https://github.com/samanddima/voxy-linux
 cd voxy-linux
 just setup          # install deps + dev extras into .venv
 ```
