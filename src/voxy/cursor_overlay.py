@@ -280,20 +280,19 @@ class _X11CursorOverlay:
                 cr.stroke()
 
             out.flush()
-            # python-xlib put_image expects an Image object, not raw args.
-            from types import SimpleNamespace  # noqa: PLC0415
-            img = SimpleNamespace(
-                format=X.ZPixmap,
-                depth=32,
-                scanline_pad=0,
-                data=bytes(out.get_data()),
-                width=log_w,
-                height=log_h,
+            self._rgba_win.put_image(
+                self._rgba_gc,
+                0, 0,
+                log_w, log_h,
+                X.ZPixmap,
+                32,
+                0,
+                bytes(out.get_data()),
             )
-            self._rgba_win.put_image(self._rgba_gc, 0, 0, img)
             self._rgba_dpy.flush()
         except Exception as exc:
-            _log.debug("voxy: _paint_rgba_outline: %s", exc)
+            print(f"voxy: _paint_rgba_outline failed: {exc}", file=sys.stderr)
+            _log.warning("voxy: _paint_rgba_outline: %s", exc)
 
     def _load_shape(self, shape_name: str) -> None:
         """Build and cache xcursor outline surfaces for shape_name (both states)."""
