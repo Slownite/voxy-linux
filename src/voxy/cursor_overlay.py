@@ -280,15 +280,17 @@ class _X11CursorOverlay:
                 cr.stroke()
 
             out.flush()
-            self._rgba_win.put_image(
-                self._rgba_gc,
-                0, 0,
-                log_w, log_h,
-                X.ZPixmap,
-                32,
-                0,
-                bytes(out.get_data()),
+            # python-xlib put_image expects an Image object, not raw args.
+            from types import SimpleNamespace  # noqa: PLC0415
+            img = SimpleNamespace(
+                format=X.ZPixmap,
+                depth=32,
+                scanline_pad=0,
+                data=bytes(out.get_data()),
+                width=log_w,
+                height=log_h,
             )
+            self._rgba_win.put_image(self._rgba_gc, 0, 0, img)
             self._rgba_dpy.flush()
         except Exception as exc:
             _log.debug("voxy: _paint_rgba_outline: %s", exc)
