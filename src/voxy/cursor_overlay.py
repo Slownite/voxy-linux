@@ -138,6 +138,7 @@ class _X11CursorOverlay:
             outline_canvas.pack()
             self._outline_win = outline_win
             self._outline_canvas = outline_canvas
+            self._clip_outline_to_empty()
 
         rect = tk.Toplevel(self._root)
         rect.withdraw()
@@ -416,6 +417,31 @@ class _X11CursorOverlay:
             pass
         self._listener = None
 
+    def _clip_outline_to_empty(self) -> None:
+        """Set an empty bounding SHAPE on the outline Toplevel at creation time.
+
+        This makes the window fully invisible (zero bounding area) until
+        _apply_outline_shape paints the real cursor-shaped mask, preventing
+        the near-black background rectangle from ever being visible.
+        """
+        if self._outline_win is None:
+            return
+        try:
+            from Xlib import display as xdisplay
+            from Xlib.ext import shape as xshape
+        except ImportError:
+            return
+        try:
+            dpy = xdisplay.Display()
+            xwin = dpy.create_resource_object(
+                "window", int(self._outline_win.winfo_id())
+            )
+            xwin.shape_rectangles(xshape.SO.Set, xshape.SK.Bounding, 0, 0, 0, [])
+            dpy.sync()
+            dpy.close()
+        except Exception as exc:
+            _log.debug("voxy: _clip_outline_to_empty: %s", exc)
+
     def _apply_outline_shape(self, log_w: int, log_h: int) -> None:
         """Use X11 SHAPE extension to cut the outline window to only its opaque pixels."""
         if not self._shape_dirty or log_w <= 0 or log_h <= 0:
@@ -577,6 +603,14 @@ class _X11CursorOverlay:
             except Exception:
                 pass
         elif self._outline_win:
+            # Apply SHAPE mask before deiconify so the window bg never flashes.
+            surf = self._cursor_outlines.get(self._state)
+            if surf is not None:
+                pre_w = max(1, surf.get_width() // self._scale)
+                pre_h = max(1, surf.get_height() // self._scale)
+            else:
+                pre_w, pre_h = 40, 40
+            self._apply_outline_shape(pre_w, pre_h)
             try:
                 self._outline_win.deiconify()
             except self._tk.TclError:
