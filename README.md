@@ -194,7 +194,7 @@ The cursor overlay normally just draws a green frame around the pointer.
 To make the overlay also **mirror the live system cursor shape** (I-beam
 in text fields, hand on links, resize cursors at window edges, …), voxy
 ships a small Hyprland plugin in
-[`hyprland-plugin/cursor-shape-emit/`](hyprland-plugin/cursor-shape-emit).
+[`hyprland-plugin/cursor-shape-emit/`](hyprland-plugin/cursor-shape-emit/).
 It hooks `CCursorManager::setCursorFromName` and
 `CInputManager::onMouseMoved` and re-emits them as Hyprland IPC events
 (`cursorshape>>name`, `cursormove>>x,y`) that voxy reads over `socket2`.
@@ -205,28 +205,35 @@ true`. On every startup `build_cursor_overlay()` calls
 ([`src/voxy/cursor_overlay.py`](src/voxy/cursor_overlay.py)), which:
 
 1. Looks for `~/.local/share/hyprland/plugins/cursor-shape-emit.so`.
-2. Skips if the file is missing — the overlay still works, just without
-   shape-aware cursor outlines.
+2. Skips if the file is missing (debug log, no error) — the overlay
+   still works, just without shape-aware cursor outlines.
 3. Otherwise asks `hyprctl plugin list` whether it's already loaded;
    if not, runs `hyprctl plugin load <path>`.
 
-There is **no auto-build**: `pip` / `pipx` / `uvx` / the AUR package /
-the Nix flake all install only the Python code. Until you build and
-install the `.so` yourself, voxy silently runs without it.
+There is **no auto-build**: `pip` / `pipx` / `uvx` and the AUR package
+all install only the Python code, so until you build and install the
+`.so` yourself voxy runs without it.
 
-**How to install it.** Hyprland headers are required (`pacman -S
-hyprland` on Arch — adjust for your distro):
+**How to install it.** You need the repo checked out and Hyprland's
+development headers on the system (`pacman -S hyprland` on Arch —
+adjust for your distro):
 
 ```bash
-cd hyprland-plugin/cursor-shape-emit
+git clone https://github.com/samanddima/voxy-linux
+cd voxy-linux/hyprland-plugin/cursor-shape-emit
 make           # produces cursor-shape-emit.so
 make install   # copies to ~/.local/share/hyprland/plugins/
 ```
 
 The next time voxy starts (or restart the user service:
-`systemctl --user restart voxy`) it will load the plugin and the
-cursor-shape feature lights up. Verify with `hyprctl plugin list` —
-`cursor-shape-emit` should appear.
+`systemctl --user restart voxy`) it will load the plugin. Verify with
+`hyprctl plugin list` — `cursor-shape-emit` should appear.
+
+> **NixOS users:** the Nix flake doesn't build this plugin and
+> `hyprctl plugin load` against a hand-built `.so` isn't the right
+> workflow on NixOS. Use Hyprland's own plugin support
+> ([wiki.hyprland.org/Plugins/Using-Plugins](https://wiki.hyprland.org/Plugins/Using-Plugins/))
+> to package and load `cursor-shape-emit` from `hyprland-plugin/cursor-shape-emit/`.
 
 **To uninstall:** `hyprctl plugin unload
 ~/.local/share/hyprland/plugins/cursor-shape-emit.so` and delete the

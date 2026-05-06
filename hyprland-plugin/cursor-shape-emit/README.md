@@ -33,15 +33,21 @@ On every startup voxy runs `_ensure_cursor_plugin()`
    `hyprctl plugin load <path>` when not already loaded.
 3. If absent, logs a debug line and continues — no error.
 
-Nothing in the Python install path (pip, pipx, uvx, AUR, Nix flake)
-builds or installs this `.so`. You build it yourself, once, against
-your running Hyprland's headers.
+Nothing in the Python install path (pip, pipx, uvx, AUR) builds or
+installs this `.so`. You build it yourself, once, against your running
+Hyprland's headers.
+
+> **NixOS:** the Nix flake doesn't build this plugin and `hyprctl
+> plugin load` against a hand-built `.so` isn't the right workflow on
+> NixOS. Use Hyprland's own plugin support
+> ([wiki.hyprland.org/Plugins/Using-Plugins](https://wiki.hyprland.org/Plugins/Using-Plugins/))
+> to package and load this directory.
 
 ## Build & install
 
-Requires Hyprland's development headers (e.g. `pacman -S hyprland`).
-The plugin must be rebuilt whenever Hyprland is upgraded — its ABI is
-not stable across versions.
+Requires the repo checked out and Hyprland's development headers
+(e.g. `pacman -S hyprland`). The plugin must be rebuilt whenever
+Hyprland is upgraded — its ABI is not stable across versions.
 
 ```bash
 make           # produces cursor-shape-emit.so
@@ -52,7 +58,7 @@ Then restart voxy (`systemctl --user restart voxy` if running as a
 user service) and verify with:
 
 ```bash
-hyprctl plugin list   # cursor-shape-emit 1.1 should appear
+hyprctl plugin list   # cursor-shape-emit should appear
 ```
 
 ## Uninstall
