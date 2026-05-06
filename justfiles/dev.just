@@ -64,7 +64,7 @@ build-arch:
 
 # Remove build artifacts
 clean:
-    rm -rf dist/ build/
+    rm -rf dist/ build/ result/
 
 # Wipe everything including venv
 purge: clean
