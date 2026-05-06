@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from .audio import AudioRecorder, AudioFeedback
 from .cursor_overlay import CursorOverlay, _NullCursorOverlay
-from .hotkey import HotkeyListener, check_input_group
+from .hotkey import HotkeyListener
 from .inserter import TextInserter, check_tools
 from .overlay import OverlayUI
 from .postprocess import PostProcessor
@@ -108,7 +108,6 @@ class App:
 
     def run(self) -> None:
         """Block until Ctrl-C, firing record/transcribe/insert on each press."""
-        check_input_group()
         check_tools(self._inserter._method)
         listener = HotkeyListener(
             key=self._key,

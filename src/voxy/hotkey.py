@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import grp
 import io
 import logging
 import os
@@ -99,7 +98,8 @@ class HotkeyListener:
     """Fires on_press / on_release callbacks for a configured hotkey.
 
     Uses evdev (reads from /dev/input) as primary backend; falls back to
-    pynput if evdev access fails (e.g. missing `input` group membership).
+    pynput if evdev finds no accessible keyboard devices (e.g. missing
+    ``input`` group membership on systems where that applies).
     """
 
     _key: str
@@ -248,20 +248,3 @@ class HotkeyListener:
             self._stop_event.wait()
             listener.stop()
 
-
-# ---------------------------------------------------------------------------
-# Startup check
-# ---------------------------------------------------------------------------
-
-def check_input_group() -> None:
-    """Raise RuntimeError with actionable message if not in `input` group."""
-    try:
-        input_gid = grp.getgrnam("input").gr_gid
-    except KeyError:
-        return  # no input group on this system
-    if input_gid not in os.getgroups():
-        raise RuntimeError(
-            "voxy requires membership in the 'input' group to capture hotkeys via evdev.\n"
-            "  Fix: sudo usermod -aG input $USER  (then log out and back in)\n"
-            "  Or run voxy as root (not recommended)."
-        )

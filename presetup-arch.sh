@@ -15,7 +15,7 @@ fi
 # wayland text insertion
 if [[ -n "${WAYLAND_DISPLAY:-}" ]] || [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
     pacman -Qi wl-clipboard &>/dev/null || PKGS+=(wl-clipboard)
-    pacman -Qi ydotool      &>/dev/null || PKGS+=(ydotool)
+    pacman -Qi ydotool &>/dev/null || PKGS+=(ydotool)
 fi
 
 # wayland cursor overlay (optional, opt-in via [ui] cursor_overlay)
@@ -26,8 +26,8 @@ if [[ -n "${WAYLAND_DISPLAY:-}" ]] || [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]
     pacman -Qi python-cairo       &>/dev/null || PKGS+=(python-cairo)
 fi
 
-# x11 text insertion
-if [[ -n "${DISPLAY:-}" ]] || [[ "${XDG_SESSION_TYPE:-}" == "x11" ]]; then
+# x11 text insertion (pure X11, or KDE Plasma Wayland which uses XWayland)
+if [[ -n "${DISPLAY:-}" ]] || [[ "${XDG_SESSION_TYPE:-}" == "x11" ]] || [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
     pacman -Qi xclip   &>/dev/null || PKGS+=(xclip)
     pacman -Qi xdotool &>/dev/null || PKGS+=(xdotool)
 fi
@@ -39,7 +39,7 @@ else
     echo "All system packages already installed."
 fi
 
-# --- ydotoold daemon (Wayland only) ---
+# --- ydotoold daemon ---
 
 if pacman -Qi ydotool &>/dev/null; then
     if ! systemctl --user is-enabled --quiet ydotool 2>/dev/null; then
@@ -60,18 +60,6 @@ if [[ -f "$CUBLAS_LIB/libcublas.so.13" ]] && [[ ! -e "$CUBLAS_LIB/libcublas.so.1
     sudo ldconfig
 else
     [[ -e "$CUBLAS_LIB/libcublas.so.12" ]] && echo "libcublas.so.12 already present."
-fi
-
-# --- input group (needed for evdev hotkey capture) ---
-
-if getent group input &>/dev/null; then
-    if ! id -nG "$USER" | grep -qw input; then
-        echo "Adding $USER to input group..."
-        sudo usermod -aG input "$USER"
-        echo "WARNING: Log out and back in for group membership to take effect."
-    else
-        echo "$USER already in input group."
-    fi
 fi
 
 echo ""

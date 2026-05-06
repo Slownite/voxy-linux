@@ -12,9 +12,31 @@ _DETECT_TIMEOUT: float = 0.5  # seconds — detection must not block the insert 
 _TERMINAL_CLASSES: frozenset[str] = frozenset({
     "konsole", "org.kde.konsole",
     "gnome-terminal", "gnome-terminal-server", "org.gnome.terminal",
+    "kgx", "org.gnome.console",
+    "org.gnome.ptyxis",
+    "com.raggesilver.blackbox",
     "alacritty",
     "ghostty", "com.mitchellh.ghostty",
     "kitty",
+    "terminator",
+    "xterm", "uxterm",
+    "tilix",
+    "foot",
+    "wezterm",
+    "warp",
+    "urxvt",
+    "xfce4-terminal",
+    "qterminal",
+    "lxterminal",
+    "mate-terminal",
+    "yakuake", "org.kde.yakuake",
+    "guake",
+    "tilda",
+    "hyper",
+    "tabby",
+    "contour",
+    "terminology",
+    "deepin-terminal",
 })
 
 # ydotool keycodes: 29=Ctrl, 42=Shift, 47=V
@@ -22,11 +44,19 @@ _YDOTOOL_CTRL_V: list[str] = ["29:1", "47:1", "47:0", "29:0"]
 _YDOTOOL_CTRL_SHIFT_V: list[str] = ["29:1", "42:1", "47:1", "47:0", "42:0", "29:0"]
 
 
+def _is_kde_wayland() -> bool:
+    return (
+        os.environ.get("XDG_CURRENT_DESKTOP", "").lower() == "kde"
+        and bool(os.environ.get("WAYLAND_DISPLAY"))
+        and bool(os.environ.get("DISPLAY"))
+    )
+
+
 def check_tools(method: str = "auto") -> None:
     """Raise RuntimeError with install instructions if required tools are missing."""
     if method == "auto":
         if os.environ.get("WAYLAND_DISPLAY"):
-            method = "wayland"
+            method = "x11" if _is_kde_wayland() else "wayland"
         elif os.environ.get("DISPLAY"):
             method = "x11"
         else:
@@ -64,7 +94,7 @@ class TextInserter:
         if self._method != "auto":
             return self._method
         if os.environ.get("WAYLAND_DISPLAY"):
-            return "wayland"
+            return "x11" if _is_kde_wayland() else "wayland"
         if os.environ.get("DISPLAY"):
             return "x11"
         raise RuntimeError(
@@ -78,6 +108,8 @@ class TextInserter:
             return self._focused_class_hyprland()
         if os.environ.get("SWAYSOCK"):
             return self._focused_class_sway()
+        if _is_kde_wayland():
+            return self._focused_class_kde_wayland()
         # GNOME native Wayland without XWayland: try gdbus before xdotool
         if (
             os.environ.get("XDG_CURRENT_DESKTOP", "").lower() == "gnome"
@@ -149,6 +181,36 @@ class TextInserter:
                 app_id = app_id.get("class", "")
             return str(app_id).lower() if app_id else ""
         except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, KeyError, AttributeError):
+            return ""
+
+    def _focused_class_kde_wayland(self) -> str:
+        # XWayland path: fastest and most reliable on typical KDE Plasma installs.
+        if os.environ.get("DISPLAY"):
+            cls = self._focused_class_x11()
+            if cls:
+                return cls
+        # Pure Wayland fallback: qdbus gives X11 window ID, xprop reads WM_CLASS.
+        try:
+            win = subprocess.run(
+                ["qdbus", "org.kde.KWin", "/KWin", "activeWindow"],
+                capture_output=True, text=True, check=False,
+                timeout=_DETECT_TIMEOUT,
+            )
+            if win.returncode != 0 or not win.stdout.strip():
+                return ""
+            # qdbus may return bare int or "uint 12345" depending on version
+            win_id = win.stdout.strip().split()[-1]
+            if not win_id.isdigit():
+                return ""
+            xprop = subprocess.run(
+                ["xprop", "-id", win_id, "WM_CLASS"],
+                capture_output=True, text=True, check=False,
+                timeout=_DETECT_TIMEOUT,
+            )
+            if xprop.returncode != 0:
+                return ""
+            return xprop.stdout.lower()
+        except (subprocess.TimeoutExpired, OSError):
             return ""
 
     def _focused_class_gnome_wayland(self) -> str:
