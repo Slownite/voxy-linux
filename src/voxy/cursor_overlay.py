@@ -21,10 +21,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
-
-if TYPE_CHECKING:
-    import tkinter as tk
+from typing import Any, Callable, Protocol
 
 from .config import UIConfig
 
@@ -81,7 +78,6 @@ class _X11CursorOverlay:
         self._visible = False
         self._state = "recording"
         self._last_pos = (0, 0)
-        self._last_apply = 0.0
 
         self._cursor_size = int(os.environ.get("XCURSOR_SIZE", "24"))
         try:
@@ -100,34 +96,49 @@ class _X11CursorOverlay:
         self._outline_canvas: Any = None
         self._rect: Any = None
         self._rect_canvas: Any = None
+        self._shape_dirty = True
+        self._outline_log_size: tuple[int, int] = (0, 0)
+        self._screen_w: int = 0
+        self._screen_h: int = 0
+
+        # RGBA outline window (replaces Tk Toplevel when compositor present)
+        self._rgba = False
+        self._rgba_dpy: Any = None
+        self._rgba_win: Any = None
+        self._rgba_gc: Any = None
+        self._rgba_w: int = 0
+        self._rgba_h: int = 0
 
         self._build_windows()
         self._load_shape("default")
         self._start_xfixes_watcher()
-        self._root.after(16, self._poll)
+        self._root.after(8, self._poll)
 
     def _build_windows(self) -> None:
         tk = self._tk
         _TRANSPARENT = "#010101"
 
-        outline_win = tk.Toplevel(self._root)
-        outline_win.withdraw()
-        try:
-            outline_win.overrideredirect(True)
-            outline_win.attributes("-topmost", True)
-            outline_win.attributes("-transparentcolor", _TRANSPARENT)
-        except self._tk.TclError:
-            pass
-        outline_win.configure(bg=_TRANSPARENT)
-        outline_canvas = tk.Canvas(
-            outline_win,
-            width=40, height=40,
-            bg=_TRANSPARENT,
-            highlightthickness=0, bd=0,
-        )
-        outline_canvas.pack()
-        self._outline_win = outline_win
-        self._outline_canvas = outline_canvas
+        self._rgba = self._try_init_rgba()
+        if not self._rgba:
+            outline_win = tk.Toplevel(self._root)
+            outline_win.withdraw()
+            try:
+                outline_win.overrideredirect(True)
+                outline_win.attributes("-topmost", True)
+                outline_win.attributes("-transparentcolor", _TRANSPARENT)
+            except self._tk.TclError:
+                pass
+            outline_win.configure(bg=_TRANSPARENT)
+            outline_canvas = tk.Canvas(
+                outline_win,
+                width=40, height=40,
+                bg=_TRANSPARENT,
+                highlightthickness=0, bd=0,
+            )
+            outline_canvas.pack()
+            self._outline_win = outline_win
+            self._outline_canvas = outline_canvas
+            self._clip_outline_to_empty()
 
         rect = tk.Toplevel(self._root)
         rect.withdraw()
@@ -159,6 +170,129 @@ class _X11CursorOverlay:
         )
         self._rect = rect
         self._rect_canvas = canvas
+
+    def _try_init_rgba(self) -> bool:
+        """Create an ARGB32 X window for the cursor outline overlay.
+
+        Requires a running compositor (_NET_WM_CM_S0 owner) and a 32-bit
+        TrueColor visual.  Returns True on success; caller skips the Tk
+        Toplevel outline window in that case.
+        """
+        try:
+            from Xlib import display as xdisplay, X
+            from Xlib.ext import shape as xshape
+            import cairo  # noqa: F401  — must be importable
+        except ImportError:
+            return False
+        try:
+            dpy = xdisplay.Display()
+            # Compositor detection: _NET_WM_CM_S0 must have an owner.
+            cm_atom = dpy.intern_atom("_NET_WM_CM_S0")
+            if dpy.get_selection_owner(cm_atom) == X.NONE:
+                _log.debug("voxy: no compositor — RGBA outline disabled")
+                dpy.close()
+                return False
+
+            # Find a 32-bit TrueColor visual.
+            screen = dpy.screen()
+            visual = None
+            for depth in screen.allowed_depths:
+                if depth.depth != 32:
+                    continue
+                for v in depth.visuals:
+                    if v.visual_class == 4:  # TrueColor
+                        visual = v
+                        break
+                if visual:
+                    break
+            if visual is None:
+                _log.debug("voxy: no 32-bit TrueColor visual — RGBA outline disabled")
+                dpy.close()
+                return False
+
+            cmap = screen.root.create_colormap(visual, X.AllocNone)
+            win = screen.root.create_window(
+                -1, -1, 1, 1,
+                0,
+                depth=32,
+                visual=visual.visual_id,
+                colormap=cmap,
+                background_pixel=0,
+                border_pixel=0,
+                event_mask=0,
+                override_redirect=True,
+            )
+
+            # Compositor hint: treat as notification overlay.
+            wtype = dpy.intern_atom("_NET_WM_WINDOW_TYPE")
+            notif = dpy.intern_atom("_NET_WM_WINDOW_TYPE_NOTIFICATION")
+            win.change_property(wtype, dpy.intern_atom("ATOM"), 32, [notif])
+
+            # Empty INPUT SHAPE → fully click-through.
+            win.shape_rectangles(xshape.SO.Set, xshape.SK.Input, 0, 0, 0, [])
+
+            gc = win.create_gc(graphics_exposures=False)
+            dpy.flush()
+
+            self._rgba_dpy = dpy
+            self._rgba_win = win
+            self._rgba_gc = gc
+            _log.debug("voxy: RGBA outline window created")
+            return True
+        except Exception as exc:
+            _log.debug("voxy: _try_init_rgba: %s", exc)
+            try:
+                dpy.close()
+            except Exception:
+                pass
+            return False
+
+    def _paint_rgba_outline(self, log_w: int, log_h: int) -> None:
+        """Render the cursor outline onto the ARGB32 X window via XPutImage."""
+        try:
+            import cairo
+            from Xlib import X
+
+            surf = self._cursor_outlines.get(self._state)
+
+            if (log_w, log_h) != (self._rgba_w, self._rgba_h):
+                self._rgba_win.configure(width=log_w, height=log_h)
+                self._rgba_w, self._rgba_h = log_w, log_h
+
+            out = cairo.ImageSurface(cairo.FORMAT_ARGB32, log_w, log_h)
+            cr = cairo.Context(out)
+            cr.set_operator(cairo.Operator.CLEAR)
+            cr.paint()
+            cr.set_operator(cairo.Operator.OVER)
+
+            if surf is not None:
+                cr.set_source_surface(surf, 0, 0)
+                cr.paint()
+            else:
+                sw = max(2.0, _ARROW_STROKE)
+                r, g, b = (
+                    _COLOR_RECORDING_RGB if self._state == "recording"
+                    else _COLOR_PROCESSING_RGB
+                )
+                cr.set_source_rgba(r, g, b, 1.0)
+                cr.set_line_width(sw)
+                cr.rectangle(sw / 2, sw / 2, log_w - sw, log_h - sw)
+                cr.stroke()
+
+            out.flush()
+            self._rgba_win.put_image(
+                self._rgba_gc,
+                0, 0,
+                log_w, log_h,
+                X.ZPixmap,
+                32,
+                0,
+                bytes(out.get_data()),
+            )
+            self._rgba_dpy.flush()
+        except Exception as exc:
+            print(f"voxy: _paint_rgba_outline failed: {exc}", file=sys.stderr)
+            _log.warning("voxy: _paint_rgba_outline: %s", exc)
 
     def _load_shape(self, shape_name: str) -> None:
         """Build and cache xcursor outline surfaces for shape_name (both states)."""
@@ -228,7 +362,6 @@ class _X11CursorOverlay:
     def show(self) -> None:
         self._queue.put(("state", "recording"))
         self._queue.put(("show", None))
-        self._start_listener()
 
     def processing(self) -> None:
         self._queue.put(("state", "processing"))
@@ -239,6 +372,17 @@ class _X11CursorOverlay:
 
     def stop(self) -> None:
         self._stop_listener()
+        if self._rgba:
+            try:
+                if self._rgba_gc is not None:
+                    self._rgba_gc.free()
+                if self._rgba_win is not None:
+                    self._rgba_win.unmap()
+                    self._rgba_win.destroy()
+                if self._rgba_dpy is not None:
+                    self._rgba_dpy.close()
+            except Exception:
+                pass
 
     def _start_listener(self) -> None:
         if self._listener is not None:
@@ -274,6 +418,86 @@ class _X11CursorOverlay:
             pass
         self._listener = None
 
+    def _clip_outline_to_empty(self) -> None:
+        """Set an empty bounding SHAPE on the outline Toplevel at creation time.
+
+        This makes the window fully invisible (zero bounding area) until
+        _apply_outline_shape paints the real cursor-shaped mask, preventing
+        the near-black background rectangle from ever being visible.
+        """
+        if self._outline_win is None:
+            return
+        try:
+            from Xlib import display as xdisplay
+            from Xlib.ext import shape as xshape
+        except ImportError:
+            return
+        try:
+            dpy = xdisplay.Display()
+            xwin = dpy.create_resource_object(
+                "window", int(self._outline_win.winfo_id())
+            )
+            xwin.shape_rectangles(xshape.SO.Set, xshape.SK.Bounding, 0, 0, 0, [])
+            dpy.sync()
+            dpy.close()
+        except Exception as exc:
+            _log.debug("voxy: _clip_outline_to_empty: %s", exc)
+
+    def _apply_outline_shape(self, log_w: int, log_h: int) -> None:
+        """Use X11 SHAPE extension to cut the outline window to only its opaque pixels."""
+        if not self._shape_dirty or log_w <= 0 or log_h <= 0:
+            return
+        self._shape_dirty = False
+        try:
+            from Xlib import display as xdisplay
+            from Xlib.ext import shape as xshape
+        except ImportError:
+            return
+        try:
+            surf = self._cursor_outlines.get(self._state)
+            dpy = xdisplay.Display()
+            xwin = dpy.create_resource_object('window', int(self._outline_win.winfo_id()))
+
+            pm = dpy.screen().root.create_pixmap(log_w, log_h, depth=1)
+            gc = pm.create_gc(foreground=0, background=0)
+            pm.fill_rectangle(gc, 0, 0, log_w, log_h)
+            gc.change(foreground=1)
+
+            if surf is not None:
+                raw = bytes(surf.get_data())
+                pw = surf.get_width()
+                ph = surf.get_height()
+                sc = self._scale
+                for ly in range(log_h):
+                    rx0 = None
+                    for lx in range(log_w):
+                        a = raw[(min(ly * sc, ph - 1) * pw + min(lx * sc, pw - 1)) * 4 + 3]
+                        if a > 10:
+                            if rx0 is None:
+                                rx0 = lx
+                        elif rx0 is not None:
+                            pm.fill_rectangle(gc, rx0, ly, lx - rx0, 1)
+                            rx0 = None
+                    if rx0 is not None:
+                        pm.fill_rectangle(gc, rx0, ly, log_w - rx0, 1)
+            else:
+                sw = max(2, int(_ARROW_STROKE))
+                sz = min(log_w, log_h)
+                pm.fill_rectangle(gc, 0, 0, sz, sw)
+                pm.fill_rectangle(gc, 0, sz - sw, sz, sw)
+                pm.fill_rectangle(gc, 0, 0, sw, sz)
+                pm.fill_rectangle(gc, sz - sw, 0, sw, sz)
+
+            xwin.shape_mask(xshape.SO.Set, xshape.SK.Bounding, 0, 0, pm)
+            dpy.sync()
+            pm.free()
+            gc.free()
+            dpy.close()
+        except Exception as exc:
+            import sys  # noqa: PLC0415
+            print(f"voxy: SHAPE mask failed: {exc}", file=sys.stderr)
+            _log.warning("voxy: _apply_outline_shape: %s", exc)
+
     def _poll(self) -> None:
         pending_move: tuple[int, int] | None = None
         try:
@@ -284,6 +508,7 @@ class _X11CursorOverlay:
                 elif cmd == "show":
                     self._visible = True
                     self._show_internal()
+                    self._start_listener()
                 elif cmd == "hide":
                     self._visible = False
                     self._hide_internal()
@@ -294,22 +519,18 @@ class _X11CursorOverlay:
                     self._load_shape(payload)
                     if self._visible:
                         self._redraw_outline()
+                        self._reposition()
         except queue.Empty:
             pass
         except self._tk.TclError:
             return
 
         if pending_move is not None and self._visible:
-            now = time.monotonic()
-            if now - self._last_apply >= 1 / 60:
-                self._last_pos = pending_move
-                self._reposition()
-                self._last_apply = now
-            else:
-                self._queue.put(("move", pending_move))
+            self._last_pos = pending_move
+            self._reposition()
 
         try:
-            self._root.after(16, self._poll)
+            self._root.after(8, self._poll)
         except self._tk.TclError:
             return
 
@@ -326,6 +547,10 @@ class _X11CursorOverlay:
 
     def _redraw_outline(self) -> None:
         """Paint current state's xcursor surface (or fallback square) on canvas."""
+        self._shape_dirty = True  # always mark before any early return
+        if self._rgba:
+            return  # painting deferred to _reposition → _paint_rgba_outline
+
         import base64  # noqa: PLC0415
         import io  # noqa: PLC0415
 
@@ -372,7 +597,21 @@ class _X11CursorOverlay:
     def _show_internal(self) -> None:
         self._apply_state()
         self._redraw_outline()
-        if self._outline_win:
+        if self._rgba:
+            try:
+                self._rgba_win.map()
+                self._rgba_dpy.flush()
+            except Exception:
+                pass
+        elif self._outline_win:
+            # Apply SHAPE mask before deiconify so the window bg never flashes.
+            surf = self._cursor_outlines.get(self._state)
+            if surf is not None:
+                pre_w = max(1, surf.get_width() // self._scale)
+                pre_h = max(1, surf.get_height() // self._scale)
+            else:
+                pre_w, pre_h = 40, 40
+            self._apply_outline_shape(pre_w, pre_h)
             try:
                 self._outline_win.deiconify()
             except self._tk.TclError:
@@ -385,7 +624,13 @@ class _X11CursorOverlay:
         self._reposition()
 
     def _hide_internal(self) -> None:
-        if self._outline_win:
+        if self._rgba:
+            try:
+                self._rgba_win.unmap()
+                self._rgba_dpy.flush()
+            except Exception:
+                pass
+        elif self._outline_win:
             try:
                 self._outline_win.withdraw()
             except self._tk.TclError:
@@ -414,26 +659,42 @@ class _X11CursorOverlay:
             wx = x - _SZ // 2
             wy = y - _SZ // 2
 
-        if self._outline_win and self._outline_canvas:
+        if self._rgba:
             try:
-                self._outline_canvas.config(width=log_w, height=log_h)
+                self._rgba_win.configure(x=wx, y=wy)
+                if self._shape_dirty:
+                    self._shape_dirty = False
+                    self._paint_rgba_outline(log_w, log_h)
+                else:
+                    self._rgba_dpy.flush()
+            except Exception as exc:
+                _log.debug("voxy: rgba reposition: %s", exc)
+        elif self._outline_win and self._outline_canvas:
+            try:
+                if (log_w, log_h) != self._outline_log_size:
+                    self._outline_canvas.config(width=log_w, height=log_h)
+                    self._outline_log_size = (log_w, log_h)
                 self._outline_win.geometry(f"{log_w}x{log_h}+{wx}+{wy}")
             except self._tk.TclError:
                 pass
 
         if self._rect:
-            sw = self._root.winfo_screenwidth()
-            sh = self._root.winfo_screenheight()
+            if not self._screen_w:
+                self._screen_w = self._root.winfo_screenwidth()
+                self._screen_h = self._root.winfo_screenheight()
             rx = x + _RECT_OFFSET
             ry = y + _RECT_OFFSET
-            if rx + _RECT_W > sw:
+            if rx + _RECT_W > self._screen_w:
                 rx = x - _RECT_OFFSET - _RECT_W
-            if ry + _RECT_H > sh:
+            if ry + _RECT_H > self._screen_h:
                 ry = y - _RECT_OFFSET - _RECT_H
             try:
                 self._rect.geometry(f"{_RECT_W}x{_RECT_H}+{rx}+{ry}")
             except self._tk.TclError:
                 pass
+
+        if not self._rgba:
+            self._apply_outline_shape(log_w, log_h)
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +729,8 @@ def _ensure_cursor_plugin(_sock_path: str) -> None:
 
     Silent no-op if the .so is missing or hyprctl is unavailable.
     """
-    import json, subprocess  # noqa: PLC0415
+    import json  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
     if not _PLUGIN_SO.exists():
         _log.debug("voxy: cursor-shape-emit.so not found at %s — shape events disabled", _PLUGIN_SO)
         return
@@ -696,7 +958,9 @@ class _WaylandCursorOverlay:
             from gi.repository import Gdk  # noqa: PLC0415
             display = Gdk.Display.get_default()
             mlist = display.get_monitors() if display else None
-            n = mlist.get_n_items() if mlist else 0
+            if mlist is None:
+                return
+            n = mlist.get_n_items()
             for i in range(n):
                 mon = mlist.get_item(i)
                 geo = mon.get_geometry()
@@ -756,7 +1020,7 @@ class _WaylandCursorOverlay:
         out["area"] = area
 
 
-    def _make_draw(self, out: dict[str, Any]):  # type: ignore[return]
+    def _make_draw(self, out: dict[str, Any]) -> Callable[[Any, Any, int, int, Any], None]:
         """Return a draw function closed over this output's offset."""
         def _draw(_area: Any, cr: Any, w: int, h: int, _data: Any) -> None:
             import cairo  # noqa: PLC0415
@@ -826,6 +1090,8 @@ class _WaylandCursorOverlay:
         with self._lock:
             scale = self._gdk_scale
             cache_key = (shape_name, scale)
+            outlines: dict[str, Any]
+            hot: tuple[float, float]
             if cache_key in self._shape_cache:
                 outlines, hot = self._shape_cache[cache_key]
             else:
@@ -834,8 +1100,8 @@ class _WaylandCursorOverlay:
                     cursor_file = _find_xcursor_file("default")
                 if cursor_file is None:
                     return
-                outlines: dict[str, Any] = {}
-                hot: tuple[float, float] = (0.0, 0.0)
+                outlines = {}
+                hot = (0.0, 0.0)
                 for state, rgb in (
                     ("recording", _COLOR_RECORDING_RGB),
                     ("processing", _COLOR_PROCESSING_RGB),

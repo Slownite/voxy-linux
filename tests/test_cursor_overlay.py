@@ -61,7 +61,6 @@ def _patched_init(self: object, root: MagicMock, tk_mod: MagicMock) -> None:
     self._visible = False  # type: ignore[attr-defined]
     self._state = "recording"  # type: ignore[attr-defined]
     self._last_pos = (0, 0)  # type: ignore[attr-defined]
-    self._last_apply = 0.0  # type: ignore[attr-defined]
     self._strips: list = []  # type: ignore[attr-defined]
     self._rect = MagicMock()  # type: ignore[attr-defined]
     self._rect_canvas = MagicMock()  # type: ignore[attr-defined]
@@ -73,6 +72,10 @@ def _patched_init(self: object, root: MagicMock, tk_mod: MagicMock) -> None:
     self._shape_cache: dict = {}  # type: ignore[attr-defined]
     self._outline_win = MagicMock()  # type: ignore[attr-defined]
     self._outline_canvas = MagicMock()  # type: ignore[attr-defined]
+    self._outline_log_size: tuple = (0, 0)  # type: ignore[attr-defined]
+    self._screen_w: int = 0  # type: ignore[attr-defined]
+    self._screen_h: int = 0  # type: ignore[attr-defined]
+    self._shape_dirty = False  # type: ignore[attr-defined]
     # No after() scheduling — tests drive _poll() manually.
 
 
@@ -226,7 +229,6 @@ def test_x11_pynput_move_updates_position() -> None:
     """on_move callback puts (move, (x,y)) on queue; _poll updates _last_pos."""
     overlay = _make_x11_overlay()
     overlay._visible = True  # type: ignore[attr-defined]
-    overlay._last_apply = 0.0  # type: ignore[attr-defined]
 
     # Simulate pynput on_move directly.
     overlay._queue.put(("move", (100, 200)))  # type: ignore[attr-defined]
@@ -235,3 +237,73 @@ def test_x11_pynput_move_updates_position() -> None:
         overlay._poll()  # type: ignore[attr-defined]
 
     assert overlay._last_pos == (100, 200)  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# AC: RGBA paint path passes correct positional args to python-xlib put_image.
+# Regression: a SimpleNamespace bundle was passed in place of the 9 positional
+# args, raising TypeError silently and leaving the ARGB32 window unpainted —
+# picom then composited it as a solid black square under the cursor.
+# ---------------------------------------------------------------------------
+
+def _attach_rgba_stubs(overlay: object) -> tuple[MagicMock, MagicMock, MagicMock]:
+    win, gc, dpy = MagicMock(), MagicMock(), MagicMock()
+    overlay._rgba = True  # type: ignore[attr-defined]
+    overlay._rgba_win = win  # type: ignore[attr-defined]
+    overlay._rgba_gc = gc  # type: ignore[attr-defined]
+    overlay._rgba_dpy = dpy  # type: ignore[attr-defined]
+    overlay._rgba_w = 0  # type: ignore[attr-defined]
+    overlay._rgba_h = 0  # type: ignore[attr-defined]
+    return win, gc, dpy
+
+
+def test_x11_paint_rgba_outline_calls_put_image_with_positional_args() -> None:
+    """put_image must be called with the 9 positional args python-xlib expects."""
+    from Xlib import X
+
+    overlay = _make_x11_overlay()
+    win, gc, _ = _attach_rgba_stubs(overlay)
+
+    overlay._paint_rgba_outline(24, 24)  # type: ignore[attr-defined]
+
+    win.put_image.assert_called_once()
+    args, kwargs = win.put_image.call_args
+    assert kwargs == {}, f"put_image must be positional, got kwargs={kwargs}"
+    assert len(args) == 9, f"expected 9 positional args, got {len(args)}: {args}"
+    got_gc, x, y, w, h, fmt, depth, left_pad, data = args
+    assert got_gc is gc
+    assert (x, y) == (0, 0)
+    assert (w, h) == (24, 24)
+    assert fmt == X.ZPixmap
+    assert depth == 32
+    assert left_pad == 0
+    assert isinstance(data, bytes | bytearray)
+    assert len(data) == 24 * 24 * 4  # ARGB32: 4 bytes per pixel
+
+
+def test_x11_paint_rgba_outline_resizes_window_on_size_change() -> None:
+    """First paint at a new size issues a configure(width, height)."""
+    overlay = _make_x11_overlay()
+    win, _, _ = _attach_rgba_stubs(overlay)
+
+    overlay._paint_rgba_outline(40, 32)  # type: ignore[attr-defined]
+
+    win.configure.assert_called_with(width=40, height=32)
+    assert overlay._rgba_w == 40  # type: ignore[attr-defined]
+    assert overlay._rgba_h == 32  # type: ignore[attr-defined]
+
+    # Same size on next call → no extra configure.
+    win.configure.reset_mock()
+    overlay._paint_rgba_outline(40, 32)  # type: ignore[attr-defined]
+    win.configure.assert_not_called()
+
+
+def test_x11_paint_rgba_outline_surfaces_failures(capsys) -> None:  # type: ignore[no-untyped-def]
+    """put_image errors must reach stderr (not just debug log) so they're noticed."""
+    overlay = _make_x11_overlay()
+    win, _, _ = _attach_rgba_stubs(overlay)
+    win.put_image.side_effect = TypeError("boom")
+
+    overlay._paint_rgba_outline(24, 24)  # type: ignore[attr-defined]
+
+    assert "_paint_rgba_outline failed" in capsys.readouterr().err

@@ -176,16 +176,22 @@ def main() -> None:
 
     from voxy.cursor_overlay import build_cursor_overlay, _NullCursorOverlay
 
-    cursor_ov = build_cursor_overlay(config.ui)
-
-    # Suppress corner overlay when cursor overlay is active — it already shows
-    # REC/PROCESSING next to the cursor.
     import dataclasses  # noqa: PLC0415
-    ui_cfg = config.ui
-    if not isinstance(cursor_ov, _NullCursorOverlay) and os.environ.get("WAYLAND_DISPLAY"):
-        ui_cfg = dataclasses.replace(config.ui, overlay=False)
 
-    overlay = OverlayUI(ui_cfg)
+    if os.environ.get("WAYLAND_DISPLAY"):
+        # Wayland: cursor overlay uses GTK, no Tk root needed.  Build first so
+        # we can suppress the corner overlay when the cursor overlay is active.
+        cursor_ov = build_cursor_overlay(config.ui)
+        ui_cfg = (dataclasses.replace(config.ui, overlay=False)
+                  if not isinstance(cursor_ov, _NullCursorOverlay) else config.ui)
+        overlay = OverlayUI(ui_cfg)
+    else:
+        # X11: cursor overlay shares the Tk root from OverlayUI — create
+        # overlay first, then wire up cursor_ov with the Tk root.
+        overlay = OverlayUI(config.ui)
+        cursor_ov = build_cursor_overlay(config.ui, tk_root=overlay._root)
+        if not isinstance(cursor_ov, _NullCursorOverlay):
+            overlay.disable_corner()
     app = App(
         AudioRecorder(),
         transcriber,

@@ -20,6 +20,7 @@ dependencies = [
     "numpy",
     "pynput; sys_platform == 'linux'",
     "dbus-next",
+    "pynput",
 ]
 
 [project.scripts]
