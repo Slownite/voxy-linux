@@ -2,13 +2,16 @@
 
 import asyncio
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from dbus_next import BusType, Variant
 from dbus_next.aio import MessageBus
 from dbus_next.service import ServiceInterface, dbus_property, method, signal
 from dbus_next.constants import PropertyAccess
+
+from .config import MODEL_SIZE_ORDER
 
 _WATCHER_BUS: str = "org.kde.StatusNotifierWatcher"
 _WATCHER_PATH: str = "/StatusNotifierWatcher"
@@ -25,6 +28,34 @@ _STATE_ICONS: dict[str, str] = {
     "recording": _ICON_RECORDING,
     "processing": _ICON_PROCESSING,
 }
+
+
+@dataclass
+class MenuItem:
+    id: int
+    label: str = ""
+    callback: Callable[[], None] | None = None
+    enabled: bool = True
+    item_type: str = "standard"       # "standard" | "separator"
+    toggle_type: str = ""             # "" | "checkmark" | "radio"
+    toggle_state_fn: Callable[[], int] | None = None
+    children: list["MenuItem"] = field(default_factory=list)
+
+    def props(self) -> dict[str, Variant]:
+        p: dict[str, Variant] = {}
+        if self.item_type == "separator":
+            p["type"] = Variant("s", "separator")
+            return p
+        p["label"] = Variant("s", self.label)
+        p["enabled"] = Variant("b", self.enabled)
+        p["visible"] = Variant("b", True)
+        if self.children:
+            p["children-display"] = Variant("s", "submenu")
+        if self.toggle_type:
+            p["toggle-type"] = Variant("s", self.toggle_type)
+            state = self.toggle_state_fn() if self.toggle_state_fn else 0
+            p["toggle-state"] = Variant("i", state)
+        return p
 
 
 class _StatusNotifierItem(ServiceInterface):
@@ -123,10 +154,33 @@ class _StatusNotifierItem(ServiceInterface):
 class _DBusMenu(ServiceInterface):
     """com.canonical.dbusmenu — context menu shown by waybar/KDE."""
 
-    def __init__(self, items: list[tuple[int, str, Callable[[], None]]]) -> None:
+    def __init__(self, items: list[MenuItem]) -> None:
         super().__init__("com.canonical.dbusmenu")
-        self._items = items  # (id, label, callback) — id 0 reserved for root
+        self._items = items
         self._revision = 1
+
+    def _find(self, target_id: int, items: list[MenuItem] | None = None) -> MenuItem | None:
+        for item in (items if items is not None else self._items):
+            if item.id == target_id:
+                return item
+            found = self._find(target_id, item.children)
+            if found:
+                return found
+        return None
+
+    def _all(self, items: list[MenuItem] | None = None) -> list[MenuItem]:
+        result: list[MenuItem] = []
+        for item in (items if items is not None else self._items):
+            result.append(item)
+            result.extend(self._all(item.children))
+        return result
+
+    def _to_variant(self, item: MenuItem, depth: int) -> Variant:
+        children: list[Any] = []
+        if depth != 0 and item.children:
+            next_depth = depth - 1 if depth > 0 else -1
+            children = [self._to_variant(c, next_depth) for c in item.children]
+        return Variant("(ia{sv}av)", [item.id, item.props(), children])
 
     @dbus_property(access=PropertyAccess.READ)
     def Version(self) -> "u":  # type: ignore[name-defined]  # noqa: F722
@@ -148,43 +202,35 @@ class _DBusMenu(ServiceInterface):
     def GetLayout(
         self, parentId: "i", recursionDepth: "i", propertyNames: "as"  # type: ignore[name-defined]  # noqa: F722, F821
     ) -> "u(ia{sv}av)":  # type: ignore[name-defined]  # noqa: F722
-        if parentId != 0:
+        depth = recursionDepth if recursionDepth >= 0 else 100
+        if parentId == 0:
+            children = [self._to_variant(item, depth - 1) for item in self._items]
+            return [self._revision, [0, {"children-display": Variant("s", "submenu")}, children]]
+        item = self._find(parentId)
+        if item is None:
             return [self._revision, [parentId, {}, []]]
-        children: list = []
-        if recursionDepth != 0:
-            for item_id, label, _ in self._items:
-                props = {"label": Variant("s", label)}
-                children.append(Variant("(ia{sv}av)", [item_id, props, []]))
-        root_props = {"children-display": Variant("s", "submenu")}
-        return [self._revision, [0, root_props, children]]
+        next_depth = depth - 1 if depth > 0 else -1
+        children = [self._to_variant(c, next_depth) for c in item.children]
+        return [self._revision, [parentId, item.props(), children]]
 
     @method()
     def GetGroupProperties(
         self, ids: "ai", propertyNames: "as"  # type: ignore[name-defined]  # noqa: F722, F821
     ) -> "a(ia{sv})":  # type: ignore[name-defined]  # noqa: F722
-        out = []
-        for item_id, label, _ in self._items:
-            if ids and item_id not in ids:
-                continue
-            props = {
-                "label": Variant("s", label),
-                "enabled": Variant("b", True),
-                "visible": Variant("b", True),
-            }
-            out.append([item_id, props])
-        return out
+        all_items = self._all()
+        return [
+            [item.id, item.props()]
+            for item in all_items
+            if not ids or item.id in ids
+        ]
 
     @method()
     def GetProperty(self, id: "i", name: "s") -> "v":  # type: ignore[name-defined]  # noqa: F722, F821
         if id == 0 and name == "children-display":
             return Variant("s", "submenu")
-        for item_id, label, _ in self._items:
-            if item_id != id:
-                continue
-            if name == "label":
-                return Variant("s", label)
-            if name in ("enabled", "visible"):
-                return Variant("b", True)
+        item = self._find(id)
+        if item:
+            return item.props().get(name, Variant("s", ""))
         return Variant("s", "")
 
     @method()
@@ -193,37 +239,36 @@ class _DBusMenu(ServiceInterface):
     ) -> None:
         if eventId != "clicked":
             return
-        for item_id, _, cb in self._items:
-            if item_id == id:
-                try:
-                    cb()
-                except Exception:
-                    pass
-                return
+        item = self._find(id)
+        if item and item.callback:
+            try:
+                item.callback()
+            except Exception:
+                pass
 
     @method()
     def EventGroup(
         self, events: "a(isvu)"  # type: ignore[name-defined]  # noqa: F722, F821
     ) -> "ai":  # type: ignore[name-defined]  # noqa: F722
-        known = {item_id for item_id, _, _ in self._items}
+        known = {item.id for item in self._all()}
         not_found: list[int] = []
         for ev in events:
-            ev_id = ev[0]
-            if ev_id not in known:
-                not_found.append(ev_id)
+            if ev[0] not in known:
+                not_found.append(ev[0])
                 continue
-            self.Event(ev_id, ev[1], ev[2], ev[3])
+            self.Event(ev[0], ev[1], ev[2], ev[3])
         return not_found
 
     @method()
     def AboutToShow(self, id: "i") -> "b":  # type: ignore[name-defined]  # noqa: F722, F821
-        return False
+        # Always true so the client re-fetches layout (picks up fresh checkmark states).
+        return True
 
     @method()
     def AboutToShowGroup(
         self, ids: "ai"  # type: ignore[name-defined]  # noqa: F722, F821
     ) -> "aiai":  # type: ignore[name-defined]  # noqa: F722
-        return [[], []]
+        return [list(ids), []]
 
     @signal()
     def ItemsPropertiesUpdated(
@@ -245,8 +290,15 @@ class _DBusMenu(ServiceInterface):
 class TrayIcon:
     """Tray icon running an SNI service in a dedicated asyncio thread."""
 
-    def __init__(self, on_quit: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        on_quit: Callable[[], None],
+        on_model_change: Callable[[str], None] | None = None,
+        get_model: Callable[[], str] | None = None,
+    ) -> None:
         self._on_quit = on_quit
+        self._on_model_change = on_model_change
+        self._get_model = get_model
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._sni: _StatusNotifierItem | None = None
@@ -298,12 +350,31 @@ class TrayIcon:
             unique = bus.unique_name
 
             sni = _StatusNotifierItem()
-            menu = _DBusMenu(
-                items=[
-                    (1, "voxy", lambda: None),
-                    (2, "Quit", self._on_quit),
-                ]
-            )
+
+            on_model_change = self._on_model_change
+            get_model = self._get_model
+
+            model_children: list[MenuItem] = []
+            if on_model_change is not None and get_model is not None:
+                for i, size in enumerate(MODEL_SIZE_ORDER):
+                    model_children.append(MenuItem(
+                        id=100 + i,
+                        label=size,
+                        callback=lambda sz=size: on_model_change(sz),
+                        toggle_type="checkmark",
+                        toggle_state_fn=lambda sz=size: 1 if get_model() == sz else 0,
+                    ))
+
+            items: list[MenuItem] = [
+                MenuItem(id=1, label="voxy", enabled=False),
+                MenuItem(id=2, item_type="separator"),
+            ]
+            if model_children:
+                items.append(MenuItem(id=3, label="Model", children=model_children))
+                items.append(MenuItem(id=4, item_type="separator"))
+            items.append(MenuItem(id=5, label="Quit", callback=self._on_quit))
+
+            menu = _DBusMenu(items=items)
             bus.export(_ITEM_PATH, sni)
             bus.export(_MENU_PATH, menu)
 

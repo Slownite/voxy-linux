@@ -14,24 +14,27 @@ import evdev
 import evdev.ecodes as ecodes
 
 
-def _import_pynput():  # type: ignore[return]
-    # On Wayland, pynput falls back to its X11 backend but xauth is empty/missing,
-    # causing a noisy print(). Suppress stdout only during import on Wayland; on
-    # X11 pynput is a real fallback and its warnings are meaningful.
-    # Evaluated once at import time; env must be set before this module loads.
+def _try_import_pynput() -> object | None:
+    # Suppress the noisy "XDG_RUNTIME_DIR not set" / xauth print that pynput
+    # emits on Wayland when its X11 backend can't connect.
     if os.environ.get("WAYLAND_DISPLAY"):
         saved, sys.stdout = sys.stdout, io.StringIO()
         try:
             from pynput import keyboard as _kb
+            return _kb
+        except ImportError:
+            return None
         finally:
             sys.stdout = saved
     else:
-        from pynput import keyboard as _kb
-    return _kb
+        try:
+            from pynput import keyboard as _kb
+            return _kb
+        except ImportError:
+            return None
 
 
-kb = _import_pynput()
-del _import_pynput
+_kb_module = _try_import_pynput()
 
 # ---------------------------------------------------------------------------
 # Key-name resolution
@@ -48,10 +51,10 @@ def _evdev_code(key: str) -> int | None:
     return _EVDEV_KEY_MAP.get(key.lower().replace("_", "").replace(" ", ""))
 
 
-# All pynput Key names, exact match first
-_PYNPUT_KEY_NAMES: set[str] = {
-    name for name in dir(kb.Key) if not name.startswith("_")
-}
+_PYNPUT_KEY_NAMES: set[str] = (
+    {name for name in dir(_kb_module.Key) if not name.startswith("_")}
+    if _kb_module is not None else set()
+)
 
 
 def _normalise_for_pynput(key: str) -> str:
@@ -70,18 +73,20 @@ def _normalise_for_pynput(key: str) -> str:
     return key.lower()
 
 
-def _pynput_key(key: str) -> kb.Key | kb.KeyCode:
+def _pynput_key(key: str) -> object:
+    assert _kb_module is not None
     normalised = _normalise_for_pynput(key)
-    pynput_attr = getattr(kb.Key, normalised, None)
+    pynput_attr = getattr(_kb_module.Key, normalised, None)
     if pynput_attr is not None:
         return pynput_attr
-    return kb.KeyCode.from_char(key)
+    return _kb_module.KeyCode.from_char(key)
 
 
-def _keys_match(key: kb.Key | kb.KeyCode | None, target: kb.Key | kb.KeyCode) -> bool:
-    if isinstance(target, kb.Key):
+def _keys_match(key: object, target: object) -> bool:
+    assert _kb_module is not None
+    if isinstance(target, _kb_module.Key):
         return bool(key == target)
-    if isinstance(target, kb.KeyCode) and isinstance(key, kb.KeyCode):
+    if isinstance(target, _kb_module.KeyCode) and isinstance(key, _kb_module.KeyCode):
         return bool(key.char == target.char)
     return False
 
@@ -219,22 +224,27 @@ class HotkeyListener:
     # ------------------------------------------------------------------
 
     def _run_pynput(self) -> None:
+        if _kb_module is None:
+            raise RuntimeError(
+                "pynput is not installed; voxy cannot fall back from evdev.\n"
+                "  Install pynput or ensure the user is in the 'input' group so evdev works."
+            )
         target = _pynput_key(self._key)
         pressed = False
 
-        def on_press(key: kb.Key | kb.KeyCode | None) -> None:
+        def on_press(key: object) -> None:
             nonlocal pressed
             if not pressed and _keys_match(key, target):
                 pressed = True
                 self._on_press()
 
-        def on_release(key: kb.Key | kb.KeyCode | None) -> None:
+        def on_release(key: object) -> None:
             nonlocal pressed
             if pressed and _keys_match(key, target):
                 pressed = False
                 self._on_release()
 
-        with kb.Listener(on_press=on_press, on_release=on_release) as listener:
+        with _kb_module.Listener(on_press=on_press, on_release=on_release) as listener:
             self._stop_event.wait()
             listener.stop()
 

@@ -11,10 +11,11 @@ from typing import Any, cast
 XDG_CONFIG_PATH: Path = Path.home() / ".config" / "voxy" / "config.toml"
 VOXY_CONFIG_ENV: str = "VOXY_CONFIG"
 
-VALID_MODEL_SIZES: frozenset[str] = frozenset(
-    {"auto", "tiny", "tiny.en", "base", "base.en", "small", "small.en",
-     "medium", "medium.en", "large-v1", "large-v2", "large-v3"}
-)
+MODEL_SIZE_ORDER: list[str] = [
+    "auto", "tiny", "tiny.en", "base", "base.en", "small", "small.en",
+    "medium", "medium.en", "large-v1", "large-v2", "large-v3",
+]
+VALID_MODEL_SIZES: frozenset[str] = frozenset(MODEL_SIZE_ORDER)
 _VALID_DEVICE_OPTIONS: frozenset[str] = frozenset({"auto", "cpu", "cuda"})
 _VALID_INSERTION_METHODS: frozenset[str] = frozenset({"auto", "x11", "wayland"})
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error"})
@@ -188,6 +189,28 @@ class ConfigLoader:
             logging=_parse_logging(_as_table(raw.get("logging", {}), "logging")),
         )
 
+    def set_model_size(self, size: str) -> None:
+        """Rewrite [model] size = "..." in the config file."""
+        import re
+        if not self._config_path.exists():
+            self.write_default(model_size=size)
+            return
+        text = self._config_path.read_text(encoding="utf-8")
+        # Match `size = "..."` only inside [model] section (stops before next section)
+        new_text, n = re.subn(
+            r'(\[model\][^\[]*?)(size\s*=\s*")[^"]*(")',
+            r'\1\g<2>' + size + r'\3',
+            text,
+            count=1,
+        )
+        if n == 0:
+            # size key absent — insert immediately after [model] header
+            new_text, m = re.subn(r'(\[model\])', rf'\1\nsize = "{size}"', text, count=1)
+            if m == 0:
+                raise ConfigError(
+                    f"[model] section missing in {self._config_path}; cannot update model size"
+                )
+        self._config_path.write_text(new_text, encoding="utf-8")
 
     def write_default(self, model_size: str = "auto") -> None:
         """Create XDG dir and write a commented default config file."""
