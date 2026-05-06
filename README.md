@@ -188,6 +188,50 @@ cursor overlay is active.
 See [docs/adr/0001-cursor-overlay.md](docs/adr/0001-cursor-overlay.md)
 for the design rationale.
 
+### Hyprland plugin (optional)
+
+The cursor overlay normally just draws a green frame around the pointer.
+To make the overlay also **mirror the live system cursor shape** (I-beam
+in text fields, hand on links, resize cursors at window edges, …), voxy
+ships a small Hyprland plugin in
+[`hyprland-plugin/cursor-shape-emit/`](hyprland-plugin/cursor-shape-emit).
+It hooks `CCursorManager::setCursorFromName` and
+`CInputManager::onMouseMoved` and re-emits them as Hyprland IPC events
+(`cursorshape>>name`, `cursormove>>x,y`) that voxy reads over `socket2`.
+
+**When it's used.** Only on Hyprland, only when `[ui] cursor_overlay =
+true`. On every startup `build_cursor_overlay()` calls
+`_ensure_cursor_plugin()`
+([`src/voxy/cursor_overlay.py`](src/voxy/cursor_overlay.py)), which:
+
+1. Looks for `~/.local/share/hyprland/plugins/cursor-shape-emit.so`.
+2. Skips if the file is missing — the overlay still works, just without
+   shape-aware cursor outlines.
+3. Otherwise asks `hyprctl plugin list` whether it's already loaded;
+   if not, runs `hyprctl plugin load <path>`.
+
+There is **no auto-build**: `pip` / `pipx` / `uvx` / the AUR package /
+the Nix flake all install only the Python code. Until you build and
+install the `.so` yourself, voxy silently runs without it.
+
+**How to install it.** Hyprland headers are required (`pacman -S
+hyprland` on Arch — adjust for your distro):
+
+```bash
+cd hyprland-plugin/cursor-shape-emit
+make           # produces cursor-shape-emit.so
+make install   # copies to ~/.local/share/hyprland/plugins/
+```
+
+The next time voxy starts (or restart the user service:
+`systemctl --user restart voxy`) it will load the plugin and the
+cursor-shape feature lights up. Verify with `hyprctl plugin list` —
+`cursor-shape-emit` should appear.
+
+**To uninstall:** `hyprctl plugin unload
+~/.local/share/hyprland/plugins/cursor-shape-emit.so` and delete the
+file. voxy will fall back to the plain green frame on the next launch.
+
 ---
 
 **Terminal paste:** when a terminal emulator is the active window (alacritty, kitty, ghostty, gnome-terminal, konsole), voxy automatically uses Ctrl+Shift+V instead of Ctrl+V. No configuration needed.
