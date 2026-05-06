@@ -19,15 +19,20 @@ uvx --with "voxy-linux[x11]"     voxy-linux   # X11
 
 ### pipx (persistent isolated install)
 
+On Arch, run `presetup-arch.sh` first to install required system packages (`portaudio`, `wl-clipboard`, `ydotool`, etc.) — pipx handles the Python deps itself, bypassing the AUR limitation.
+
 ```bash
+./presetup-arch.sh   # Arch only, once
 pipx install "voxy-linux[wayland]"   # Wayland
 pipx install "voxy-linux[x11]"       # X11
 ```
 
 ### AUR (Arch / Manjaro)
 
+Requires an AUR helper — several Python dependencies (`python-faster-whisper`, `python-sounddevice`, `python-pynput`, `python-dbus-next`) are AUR-only and plain `pacman` cannot resolve them.
+
 ```bash
-yay -S voxy-linux
+yay -S voxy-linux   # or: paru -S voxy-linux
 ```
 
 ### NixOS
@@ -48,12 +53,13 @@ Before installing via `pip` / `pipx` / `uvx`, install the required system packag
 | Fedora | `sudo dnf install portaudio` |
 | Arch | `sudo pacman -S portaudio` |
 
-**Text insertion + cursor overlay** (install the set that matches your display server)
+**Text insertion** (install the set that matches your desktop)
 
-| Display server | System packages | Python extra |
+| Desktop | System packages | Notes |
 |---|---|---|
-| Wayland | `wl-clipboard` + `ydotool` + `gtk4` + `gtk4-layer-shell` | `[wayland]` |
-| X11 | `xclip` + `xdotool` | `[x11]` |
+| KDE Plasma (Wayland) | `xclip` + `xdotool` | Uses XWayland — no daemon or group membership needed |
+| Wayland (other) | `wl-clipboard` + `ydotool` | Enable daemon: `systemctl --user enable --now ydotool` |
+| X11 | `xclip` + `xdotool` | |
 
 **Cursor overlay** (optional, Hyprland only — see [Cursor overlay](#cursor-overlay))
 
