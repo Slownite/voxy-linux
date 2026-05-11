@@ -79,7 +79,9 @@ Wayland (other compositors — Hyprland, sway, GNOME, …):
 | Distro | Command |
 |---|---|
 | Arch | `sudo pacman -S gtk4 gtk4-layer-shell python-gobject python-cairo` |
-| NixOS | adds the deps automatically via the flake module |
+| Debian / Ubuntu | `sudo apt install libgtk-4-dev gir1.2-gtk4layershell-1.0 python3-gi python3-cairo` |
+| Fedora | `sudo dnf install gtk4 gtk4-layer-shell python3-gobject python3-cairo` |
+| NixOS | `environment.systemPackages = with pkgs; [ gtk4 gtk4-layer-shell python3Packages.pygobject3 python3Packages.pycairo ];` |
 
 Then install voxy with the extra: `pipx install 'voxy-linux[wayland]'`.
 
