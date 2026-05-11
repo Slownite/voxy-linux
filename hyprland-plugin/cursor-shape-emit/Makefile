@@ -29,7 +29,10 @@ clean:
 
 # --- Tests ------------------------------------------------------------------
 
-TEST_CXXFLAGS = -std=c++26 -O2 -fno-omit-frame-pointer -Wall -Wextra \
+# Tests link only against the pure outline.cpp + cairo, no Hyprland headers,
+# so we can target c++20 (which Ubuntu 24.04's gcc-13 supports) instead of
+# c++26 (which the plugin itself needs but which only ships in gcc-14+).
+TEST_CXXFLAGS = -std=c++20 -O2 -fno-omit-frame-pointer -Wall -Wextra \
                 $(shell pkg-config --cflags cairo)
 TEST_LDFLAGS  = $(shell pkg-config --libs cairo)
 
