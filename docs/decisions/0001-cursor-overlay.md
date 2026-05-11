@@ -8,7 +8,8 @@
 ## Context and Problem Statement
 
 Voxy currently shows recording state in a fixed corner overlay
-([overlay.py](../../src/voxy/overlay.py)). The user requested an
+([overlay.py](https://github.com/samanddima/voxy-linux/blob/main/src/voxy/overlay.py)).
+The user requested an
 indicator anchored to the mouse cursor — a green frame around the
 cursor plus a small status rectangle to its bottom-right — visible only
 while the PTT hotkey is held and during the subsequent transcription.
@@ -135,6 +136,25 @@ When greenlit:
 3. Multi-monitor: ship v1 single-monitor, or block on multi-monitor?
 4. If GTK4 dependency is rejected, do we accept Option 3
    (cursor-theme swap) as a degraded Wayland path?
+
+## Update 2026-05-11 — outline moved into the Hyprland plugin
+
+The original Wayland back-end drew both the cursor outline and the status
+badge from a GTK4 layer-shell surface, fed by `cursormove>>` IPC events from
+the `cursor-shape-emit` plugin. On fast cursor sweeps the outline visibly
+trailed Hyprland's hardware cursor plane — the chain of kernel → Hyprland →
+EventManager → socket2 → Python thread → `GLib.idle_add` → GTK frame clock →
+`wl_surface.commit` → vblank can never beat the HW cursor plane.
+
+The cursor outline now lives inside `cursor-shape-emit` itself
+([hyprland-plugin/cursor-shape-emit/main.cpp](../../hyprland-plugin/cursor-shape-emit/main.cpp)).
+A `render` callback draws the four contour strips with
+`g_pHyprOpenGL->renderRect` during `RENDER_LAST_MOMENT`, sharing the
+compositor's cursor frame. Three new dispatchers
+(`voxy:overlay_show / _processing / _hide`) toggle plugin state from Python.
+The Python side stopped consuming `cursormove>>` and now only owns the small
+status badge, polling `cursorpos` over the Hyprland socket at ~30 Hz — the
+badge's 26 px offset hides the residual lag.
 
 ## References
 

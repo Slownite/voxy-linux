@@ -4,7 +4,7 @@
 
 Local, offline voice dictation for Linux — text appears instantly in whatever window is active. No cloud. No subscription. No audio ever leaves your machine.
 
-Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× faster than openai-whisper on CPU, same accuracy). Works on X11 and Wayland. Ships as a Nix flake.
+Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× faster than openai-whisper on CPU, same accuracy). Works on X11 and Wayland, with a native Hyprland plugin for a zero-lag cursor outline. Ships as a Nix flake.
 
 ---
 
@@ -42,16 +42,30 @@ Before installing via `pip` / `pipx` / `uvx`, install the required system packag
 
 | Distro | Command |
 |---|---|
+| Arch | `sudo pacman -S portaudio` |
 | Debian / Ubuntu | `sudo apt install libportaudio2` |
 | Fedora | `sudo dnf install portaudio` |
-| Arch | `sudo pacman -S portaudio` |
+| NixOS | add `pkgs.portaudio` to `environment.systemPackages` (or `nix-shell -p portaudio` for an ad-hoc shell) |
 
-**Text insertion** (install the set that matches your display server)
+**Text insertion** — install the set that matches your display server.
 
-| Display server | Packages |
+X11:
+
+| Distro | Command |
 |---|---|
-| X11 | `xclip` + `xdotool` |
-| Wayland | `wl-clipboard` + `ydotool` |
+| Arch | `sudo pacman -S xclip xdotool` |
+| Debian / Ubuntu | `sudo apt install xclip xdotool` |
+| Fedora | `sudo dnf install xclip xdotool` |
+| NixOS | add `pkgs.xclip pkgs.xdotool` to `environment.systemPackages` |
+
+Wayland:
+
+| Distro | Command |
+|---|---|
+| Arch | `sudo pacman -S wl-clipboard ydotool` then `systemctl --user enable --now ydotool` |
+| Debian / Ubuntu | `sudo apt install wl-clipboard ydotool` then `systemctl --user enable --now ydotool` |
+| Fedora | `sudo dnf install wl-clipboard ydotool` then `systemctl --user enable --now ydotool` |
+| NixOS | set `programs.ydotool.enable = true;` and add `pkgs.wl-clipboard` to `environment.systemPackages` |
 
 > **macOS / Windows:** voxy is Linux-only. The package will install but will not run on other platforms.
 
@@ -166,7 +180,7 @@ On GPU, the compute type is selected automatically: `int8_float16` (Turing+), `f
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    voxy.url    = "github:Slownite/voxy-linux";
+    voxy.url    = "github:samanddima/voxy-linux";
   };
 
   outputs = { nixpkgs, voxy, ... }: {
@@ -225,7 +239,7 @@ services.voxy = {
 ### Setup
 
 ```bash
-git clone https://github.com/Slownite/voxy-linux
+git clone https://github.com/samanddima/voxy-linux
 cd voxy-linux
 just setup          # install deps + dev extras into .venv
 ```
