@@ -7,6 +7,15 @@ dist/
 *.egg-info/
 progress.txt
 .claude/
-CLAUDE.md
 .agents/
 ralf-progress.txt
+
+# build artefacts
+build/
+*.o
+docs/_build/
+hyprland-plugin/cursor-shape-emit/tests/test_outline
+hyprland-plugin/cursor-shape-emit/tests/test_outline_asan
+
+# local-only Claude state
+CLAUDE.md
