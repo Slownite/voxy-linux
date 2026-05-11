@@ -1,0 +1,11 @@
+/* Minimal voxy doc overrides. */
+
+.sy-head-brand img {
+  height: 22px !important;
+}
+
+/* Tighten code blocks so listings stay punchy. */
+div.highlight pre {
+  font-size: 0.85rem;
+  line-height: 1.45;
+}

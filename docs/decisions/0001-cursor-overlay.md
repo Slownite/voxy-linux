@@ -8,7 +8,8 @@
 ## Context and Problem Statement
 
 Voxy currently shows recording state in a fixed corner overlay
-([overlay.py](../../src/voxy/overlay.py)). The user requested an
+([overlay.py](https://github.com/samanddima/voxy-linux/blob/main/src/voxy/overlay.py)).
+The user requested an
 indicator anchored to the mouse cursor — a green frame around the
 cursor plus a small status rectangle to its bottom-right — visible only
 while the PTT hotkey is held and during the subsequent transcription.

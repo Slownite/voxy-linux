@@ -1,6 +1,6 @@
 """CursorOverlay — optional indicator anchored to the mouse cursor.
 
-See [docs/adr/0001-cursor-overlay.md] for the design.
+See [docs/decisions/0001-cursor-overlay.md] for the design.
 
 Back-ends:
 - `_X11CursorOverlay`      — Tk + pynput (X11 / XWayland).
