@@ -1,7 +1,10 @@
 name: hyprland-plugin tests
 
 on:
+  # Only fire on push to main — PR branch pushes are covered by pull_request,
+  # so this avoids running the same job twice for every commit on a PR.
   push:
+    branches: [main]
     paths:
       - 'hyprland-plugin/cursor-shape-emit/**'
       - '.github/workflows/hyprland-plugin-tests.yml'
