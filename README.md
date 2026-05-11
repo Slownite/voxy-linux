@@ -355,6 +355,36 @@ just install        # build + pipx install
 just clean          # remove dist/ and .venv/
 ```
 
+### Shell tab-completion for `just`
+
+```bash
+just install-completions          # auto-detects $SHELL (bash, zsh, fish, …)
+just install-completions zsh      # or pass the shell name explicitly
+```
+
+Writes the completion script to the XDG user path (e.g.
+`~/.local/share/bash-completion/completions/just`). Re-open the shell
+to pick it up.
+
+**NixOS / home-manager** users — keep it declarative instead:
+
+```nix
+# bash
+programs.bash.initExtra = ''
+  source <(just --completions bash)
+'';
+
+# zsh
+programs.zsh.initExtra = ''
+  source <(just --completions zsh)
+'';
+
+# fish
+programs.fish.interactiveShellInit = ''
+  just --completions fish | source
+'';
+```
+
 ### Repo stats
 
 ```bash
