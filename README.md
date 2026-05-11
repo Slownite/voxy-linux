@@ -4,7 +4,7 @@
 
 Local, offline voice dictation for Linux — text appears instantly in whatever window is active. No cloud. No subscription. No audio ever leaves your machine.
 
-Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× faster than openai-whisper on CPU, same accuracy). Supports Wayland and X11 via optional display-server extras. Ships as a Nix flake.
+Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (2–4× faster than openai-whisper on CPU, same accuracy). Supports Wayland and X11 via optional display-server extras, with a native Hyprland plugin for a zero-lag cursor outline. Ships as a Nix flake.
 
 ---
 
@@ -49,25 +49,39 @@ Before installing via `pip` / `pipx` / `uvx`, install the required system packag
 
 | Distro | Command |
 |---|---|
+| Arch | `sudo pacman -S portaudio` |
 | Debian / Ubuntu | `sudo apt install libportaudio2` |
 | Fedora | `sudo dnf install portaudio` |
-| Arch | `sudo pacman -S portaudio` |
+| NixOS | add `pkgs.portaudio` to `environment.systemPackages` (or `nix-shell -p portaudio` for an ad-hoc shell) |
 
-**Text insertion** (install the set that matches your desktop)
+**Text insertion** — install the set that matches your display server.
 
-| Desktop | System packages | Notes |
-|---|---|---|
-| KDE Plasma (Wayland) | `xclip` + `xdotool` | Uses XWayland — no daemon or group membership needed |
-| Wayland (other) | `wl-clipboard` + `ydotool` | Enable daemon: `systemctl --user enable --now ydotool` |
-| X11 | `xclip` + `xdotool` | |
+X11 (also KDE Plasma Wayland, which routes through XWayland — no daemon or group membership needed):
+
+| Distro | Command |
+|---|---|
+| Arch | `sudo pacman -S xclip xdotool` |
+| Debian / Ubuntu | `sudo apt install xclip xdotool` |
+| Fedora | `sudo dnf install xclip xdotool` |
+| NixOS | add `pkgs.xclip pkgs.xdotool` to `environment.systemPackages` |
+
+Wayland (other compositors — Hyprland, sway, GNOME, …):
+
+| Distro | Command |
+|---|---|
+| Arch | `sudo pacman -S wl-clipboard ydotool` then `systemctl --user enable --now ydotool` |
+| Debian / Ubuntu | `sudo apt install wl-clipboard ydotool` then `systemctl --user enable --now ydotool` |
+| Fedora | `sudo dnf install wl-clipboard ydotool` then `systemctl --user enable --now ydotool` |
+| NixOS | set `programs.ydotool.enable = true;` and add `pkgs.wl-clipboard` to `environment.systemPackages` |
 
 **Cursor overlay** (optional, Hyprland only — see [Cursor overlay](#cursor-overlay))
 
 | Distro | Command |
 |---|---|
 | Arch | `sudo pacman -S gtk4 gtk4-layer-shell python-gobject python-cairo` |
+| NixOS | adds the deps automatically via the flake module |
 
-Then install voxy with the extra: `pipx install 'voxy-linux[cursor-overlay]'`.
+Then install voxy with the extra: `pipx install 'voxy-linux[wayland]'`.
 
 > **macOS / Windows:** voxy is Linux-only. The package will install but will not run on other platforms.
 
