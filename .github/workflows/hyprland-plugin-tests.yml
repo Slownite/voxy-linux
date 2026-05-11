@@ -1,0 +1,36 @@
+name: hyprland-plugin tests
+
+on:
+  push:
+    paths:
+      - 'hyprland-plugin/cursor-shape-emit/**'
+      - '.github/workflows/hyprland-plugin-tests.yml'
+  pull_request:
+    paths:
+      - 'hyprland-plugin/cursor-shape-emit/**'
+      - '.github/workflows/hyprland-plugin-tests.yml'
+
+jobs:
+  unit:
+    name: unit + sanitizers
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hyprland-plugin/cursor-shape-emit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              g++ make pkg-config libcairo2-dev shellcheck
+
+      - name: run unit tests
+        run: make test
+
+      - name: run AddressSanitizer + UBSan tests
+        run: make test-asan
+
+      - name: shellcheck smoke script
+        run: make smoke-lint
