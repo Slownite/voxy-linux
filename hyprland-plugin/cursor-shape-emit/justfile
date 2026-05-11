@@ -1,0 +1,46 @@
+# cursor-shape-emit — task runner. Thin wrapper around the Makefile so
+# you can run `just <recipe>` from this directory.
+
+default:
+    @just --list
+
+# Build the plugin (.so).
+build:
+    make
+
+# Build + install to ~/.local/share/hyprland/plugins/.
+install:
+    make install
+
+# Reload the plugin in the running Hyprland.
+reload: install
+    hyprctl plugin unload "$HOME/.local/share/hyprland/plugins/cursor-shape-emit.so" || true
+    hyprctl plugin load "$HOME/.local/share/hyprland/plugins/cursor-shape-emit.so"
+
+# Run unit tests.
+test:
+    make test
+
+# Run unit tests with AddressSanitizer + UBSan.
+test-asan:
+    make test-asan
+
+# Run integration smoke test against the live Hyprland.
+smoke:
+    make smoke
+
+# Lint the integration smoke shell script with shellcheck.
+smoke-lint:
+    make smoke-lint
+
+# Regenerate the golden PNG fixture used by the outline test.
+regen-golden:
+    make regen-golden
+
+# Full check: unit tests + ASAN + shellcheck + smoke.
+check:
+    make check
+
+# Remove all build artifacts.
+clean:
+    make clean
